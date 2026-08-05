@@ -41,10 +41,16 @@ URL = os.environ.get("SUPABASE_URL", "https://vzvtlwfvncwwtzntndmy.supabase.co")
 KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 TOKEN = os.environ.get("CT_INGEST_TOKEN", "")
 SOURCE = os.environ.get("CT_SOURCE", "daily cron")
+# etl.py loads both cycles: the published one and the prior one, which the site
+# keeps out of its aggregates but still shows on committee pages under its own
+# heading. Downloading only the published cycle is what broke the first hosted
+# run — the container I built this in still had the 2024 files lying around from
+# an earlier manual extract, so the missing download never showed up locally.
 CYCLE = int(os.environ.get("CT_CYCLE", "2026"))
-YY = str(CYCLE)[-2:]
+CYCLES = sorted({int(c) for c in os.environ.get("CT_CYCLES", "2024,2026").split(",") if c.strip()}
+                | {CYCLE})
 
-FEC_FILES = [f"cn{YY}", f"cm{YY}", f"ccl{YY}", f"pas2{YY}"]
+FEC_STEMS = ("cn", "cm", "ccl", "pas2")
 LEGIS = "https://unitedstates.github.io/congress-legislators/legislators-current.json"
 
 
@@ -98,17 +104,28 @@ def fetch_if_changed(url, dest: Path, force=False):
 def pull_sources():
     got = {}
     got["legislators"] = fetch_if_changed(LEGIS, DATA / "legislators-current.json")
-    for stem in FEC_FILES:
-        z = DATA / f"{stem}.zip"
-        changed = fetch_if_changed(f"https://www.fec.gov/files/bulk-downloads/{CYCLE}/{stem}.zip", z)
-        out = DATA / f"{stem}_x"
-        if changed or not out.exists():
-            if out.exists():
-                shutil.rmtree(out)
-            out.mkdir(parents=True)
-            with zipfile.ZipFile(z) as zf:
-                zf.extractall(out)
-        got[stem] = changed
+    missing = []
+    for cyc in CYCLES:
+        yy = str(cyc)[-2:]
+        for stem in FEC_STEMS:
+            name = f"{stem}{yy}"
+            z = DATA / f"{name}.zip"
+            changed = fetch_if_changed(
+                f"https://www.fec.gov/files/bulk-downloads/{cyc}/{name}.zip", z)
+            out = DATA / f"{name}_x"
+            if changed or not out.exists():
+                if out.exists():
+                    shutil.rmtree(out)
+                out.mkdir(parents=True)
+                with zipfile.ZipFile(z) as zf:
+                    zf.extractall(out)
+            got[name] = changed
+            # Fail here with the file name rather than three steps later with a
+            # FileNotFoundError from deep inside the loader.
+            if not any(out.iterdir()):
+                missing.append(str(out))
+    if missing:
+        raise RuntimeError("FEC archives extracted to nothing: " + ", ".join(missing))
     log("sources: " + ", ".join(f"{k}={'new' if v else 'cached'}" for k, v in got.items()))
     return got
 
@@ -146,6 +163,43 @@ LOAD = [
 ]
 
 
+def published_counts():
+    """Row counts currently live, so a refresh can be compared against them."""
+    out = {}
+    for _, table, _, _ in LOAD:
+        req = urllib.request.Request(
+            f"{URL}/rest/v1/{table}?select=*&limit=1",
+            headers={"apikey": KEY, "Authorization": f"Bearer {KEY}",
+                     "Accept-Profile": "civictrace", "Prefer": "count=exact",
+                     "Range": "0-0"})
+        # A failed count is unknown, not zero. Defaulting to zero would silently
+        # disable the guard below at exactly the moment the network is unreliable.
+        with urllib.request.urlopen(req, timeout=60) as r:
+            rng = r.headers.get("Content-Range", "")
+            if "/" not in rng:
+                raise RuntimeError(f"no row count returned for {table}")
+            out[table] = int(rng.rsplit("/", 1)[-1])
+    return out
+
+
+def guard_against_shrink(before, rows_by_table, tolerance=0.05):
+    """Refuse to publish a refresh that lost a material number of records.
+
+    The roll-call and bill fetchers rebuild their tables from scratch, and the
+    Senate's XML endpoint times out often enough that a bad network minute can
+    quietly produce a smaller, complete-looking dataset. Publishing that would
+    silently drop votes from the site with nothing to notice it by. A shrink
+    beyond a few percent is treated as a failed source, not as news.
+    """
+    shrunk = []
+    for table, n_new in rows_by_table.items():
+        n_old = before.get(table, 0)
+        if n_old and n_new < n_old * (1 - tolerance):
+            shrunk.append(f"{table}: {n_old} published, refresh produced {n_new}")
+    if shrunk:
+        raise RuntimeError("refresh lost records, refusing to publish — " + "; ".join(shrunk))
+
+
 def publish():
     """Replace every published table, parents first.
 
@@ -164,6 +218,11 @@ def publish():
                 "timing_same_day": r["timing_same_day"],
                 "timing_contributions": json.loads(r["timing_contributions"]),
             }
+
+    before = published_counts()
+    fresh = {table: len(json.loads((SQLD / f"{stem}.json").read_text()))
+             for stem, table, _, _ in LOAD}
+    guard_against_shrink(before, fresh)
 
     counts = {}
     for stem, table, batch, replace in LOAD:
