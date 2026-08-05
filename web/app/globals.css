@@ -1,0 +1,444 @@
+:root{
+  --page:#eef2f7; --card:#ffffff; --line:#dde5ef; --line2:#eaeff6;
+  --ink:#16222f; --dim:#5f7183; --faint:#8698a9;
+  --navy:#12376b; --blue:#2f7bd6; --blue2:#5b9ae6; --blue-soft:#eaf1fa;
+  --green:#1f7a52; --green-bg:#e7f6ee; --green-line:#bfe6d1;
+  --amber:#8a6a00; --amber-bg:#fff5db; --amber-line:#f2dfa8;
+  --red:#b3352f; --red-bg:#fdeceb;
+  --gray-bg:#f2f5f9;
+  --r:14px; --shadow:0 1px 2px rgba(18,55,107,.06), 0 4px 14px rgba(18,55,107,.05);
+}
+*{box-sizing:border-box}
+html,body{padding:0;margin:0;overflow-x:hidden}
+body{
+  background:var(--page); color:var(--ink);
+  font:16px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  -webkit-text-size-adjust:100%;
+}
+img,svg{max-width:100%}
+a{color:var(--blue); text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1240px;margin:0 auto;padding:0 20px}
+
+/* ---------- header ---------- */
+.site-head{background:#fff;border-bottom:1px solid var(--line)}
+.head-row{display:flex;align-items:center;gap:14px;padding:14px 0;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:20px;letter-spacing:-.5px;color:var(--navy)}
+.brand em{font-style:normal;font-weight:800;color:var(--blue)}
+.brand sup{font-size:10px;top:-8px;position:relative;color:var(--faint)}
+.nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+.nav a{padding:8px 13px;border-radius:999px;color:var(--dim);font-size:14.5px;font-weight:600}
+.nav a:hover{background:var(--gray-bg);text-decoration:none}
+
+/* ---------- hero ---------- */
+.hero{background:linear-gradient(180deg,#fff, #f7fafd);border-bottom:1px solid var(--line);padding:34px 0 30px}
+.hero-in{display:flex;gap:24px;align-items:flex-start}
+.hero h1{
+  font-size:clamp(28px,5.2vw,54px);line-height:1.04;margin:0;letter-spacing:-1.6px;
+  font-weight:900;color:var(--navy);text-transform:uppercase;
+}
+.hero .sub{font-size:clamp(15px,1.6vw,19px);color:var(--dim);margin:12px 0 0;max-width:660px}
+.speech{
+  background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+  font-size:13px;line-height:1.45;color:var(--dim);max-width:215px;box-shadow:var(--shadow);
+  margin-left:auto;flex:none;
+}
+.hero-art{display:flex;align-items:center;gap:12px;flex:none}
+@media(max-width:900px){.speech,.hero-art{display:none}}
+
+/* ---------- generic ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px;box-shadow:var(--shadow)}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.g4{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+h2.section{font-size:26px;font-weight:800;letter-spacing:-.6px;margin:34px 0 6px;color:var(--navy)}
+h3{margin:0 0 6px;font-size:17px;font-weight:800;letter-spacing:-.2px}
+p.lede{color:var(--dim);margin:0 0 18px;max-width:820px}
+.small{font-size:13.5px;color:var(--dim)}
+.tiny{font-size:12px;color:var(--faint)}
+.mono{font-variant-numeric:tabular-nums}
+.kpi{font-size:30px;font-weight:900;letter-spacing:-1px;color:var(--navy)}
+.eyebrow{font-size:11px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--faint)}
+.rule{height:1px;background:var(--line2);margin:18px 0}
+
+.chip{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;
+  font-size:11.5px;font-weight:900;color:#fff;flex:none}
+.chip.R{background:#c2413c}.chip.D{background:#2f6fbf}.chip.I{background:#7a6aa8}
+.pill{display:inline-block;background:var(--gray-bg);border:1px solid var(--line);border-radius:7px;
+  padding:2px 8px;font-size:12px;color:var(--dim);margin:2px 4px 2px 0}
+
+/* ---------- the six-step trail ---------- */
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:0;margin:18px 0 4px}
+@media(max-width:1150px){.flow{grid-template-columns:repeat(3,1fr);row-gap:26px}}
+@media(max-width:660px){.flow{grid-template-columns:repeat(2,1fr)}}
+.step{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px 13px 16px;
+  position:relative;margin-right:26px;box-shadow:var(--shadow);display:flex;flex-direction:column;min-width:0}
+.step:last-child{margin-right:0}
+.step::after{content:"";position:absolute;right:-21px;top:50%;width:0;height:0;
+  border-left:9px solid var(--blue);border-top:6px solid transparent;border-bottom:6px solid transparent}
+.step:last-child::after{display:none}
+@media(max-width:1150px){.step:nth-child(3n)::after{display:none}}
+@media(max-width:660px){.step::after{display:none}.step{margin-right:0}}
+.step-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.step-num{width:23px;height:23px;border-radius:50%;background:var(--blue);color:#fff;
+  font-size:12px;font-weight:900;display:grid;place-items:center;flex:none}
+.step-label{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--navy)}
+.step-q{font-size:12.5px;color:var(--faint);min-height:32px;margin-bottom:6px}
+.step-art{display:grid;place-items:center;background:var(--blue-soft);border-radius:10px;padding:8px;margin-bottom:10px;min-height:96px}
+.step-title{font-size:14.5px;font-weight:800;line-height:1.28;margin-bottom:2px;min-height:38px;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.step-sub{font-size:12px;color:var(--dim);margin-bottom:10px;line-height:1.4;min-height:50px;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.amount-box{margin-top:auto;background:var(--green-bg);border:1px solid var(--green-line);
+  border-radius:10px;padding:9px 10px;text-align:center}
+.amount-box .v{font-size:19px;font-weight:900;color:var(--green);letter-spacing:-.5px}
+.amount-box .l{font-size:11px;color:var(--dim);margin-top:1px;line-height:1.3}
+.amount-box.amber{background:var(--amber-bg);border-color:var(--amber-line)}
+.amount-box.amber .v{color:var(--amber)}
+.amount-box.plain{background:var(--gray-bg);border-color:var(--line)}
+.amount-box.plain .v{color:var(--navy);font-size:15px}
+
+/* ---------- gauge row ---------- */
+.gauge-row{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:0;background:#fff;
+  border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;margin-top:16px}
+@media(max-width:1000px){.gauge-row{grid-template-columns:1fr}}
+.gauge-cell{padding:18px 20px;display:flex;gap:14px;align-items:flex-start;border-right:1px solid var(--line2);min-width:0}
+.gauge-cell:last-child{border-right:0}
+@media(max-width:1000px){.gauge-cell{border-right:0;border-bottom:1px solid var(--line2)}}
+.verdict{font-size:21px;font-weight:900;letter-spacing:-.5px;margin:2px 0 4px}
+.v-none{color:var(--dim)} .v-low{color:var(--dim)} .v-some{color:var(--blue)} .v-note{color:#b8860b}
+
+/* ---------- source documents ---------- */
+.srcgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:12px}
+.srccard{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fff;display:flex;flex-direction:column;min-width:0}
+.srccard .n{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.srccard .n b{width:20px;height:20px;border-radius:50%;background:var(--navy);color:#fff;font-size:11px;
+  display:grid;place-items:center;flex:none}
+.srccard .n span{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--navy)}
+.srcmeta{background:var(--gray-bg);border:1px solid var(--line);border-radius:8px;padding:7px 8px;
+  font-size:10.5px;color:var(--dim);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  line-height:1.4;margin:8px 0;word-break:break-word}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;margin-top:auto;
+  border:1.5px solid var(--blue);color:var(--blue);border-radius:9px;padding:8px 10px;
+  font-size:12.5px;font-weight:700;background:#fff;text-align:center}
+.btn:hover{background:var(--blue-soft);text-decoration:none}
+.btn.solid{background:var(--navy);border-color:var(--navy);color:#fff}
+.btn.solid:hover{background:#0d2c56}
+
+/* ---------- notes / disclaimers ---------- */
+.note{border-left:4px solid var(--amber-line);background:#fffdf6;padding:13px 15px;
+  border-radius:0 10px 10px 0;font-size:13.5px;color:#5c4c22;line-height:1.55}
+.note strong{color:#3f3411}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:800}
+tbody tr:hover{background:#fafcfe}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+
+.bar{height:8px;border-radius:5px;background:var(--gray-bg);overflow:hidden;margin-top:5px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--blue2));border-radius:5px}
+
+.stat{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:7px 0;
+  border-bottom:1px solid var(--line2)}
+.stat:last-child{border-bottom:0}
+.stat b{font-weight:700;font-variant-numeric:tabular-nums}
+
+input[type=search],input[type=text]{width:100%;background:#fff;border:1px solid var(--line);
+  border-radius:11px;padding:13px 15px;font-size:15px;color:var(--ink);box-shadow:var(--shadow)}
+input:focus{outline:2px solid var(--blue2);outline-offset:1px}
+
+.badge{display:inline-block;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:800;
+  white-space:normal;line-height:1.35;max-width:100%}
+.b-note{background:#fdf3d8;color:#8a6a00;border:1px solid var(--amber-line)}
+.b-some{background:var(--blue-soft);color:#1c5da8;border:1px solid #cfe0f5}
+.b-low{background:var(--gray-bg);color:var(--dim);border:1px solid var(--line)}
+
+.foot{background:#fff;border-top:1px solid var(--line);margin-top:48px;padding:22px 0 40px}
+.foot-in{display:flex;gap:14px;align-items:flex-start}
+.vote-Y{color:var(--green);font-weight:800}
+.vote-N{color:var(--red);font-weight:800}
+.link-list a{display:block;padding:3px 0;font-size:13.5px}
+/* Inline disclosures inside page content. :not(.mnav-wrap) keeps this off the
+   mobile menu, which draws its own control — otherwise the menu button wears a
+   stray ▾ from a rule written for a completely different component. */
+details:not(.mnav-wrap)>summary{cursor:pointer;font-size:13.5px;font-weight:700;color:var(--blue);padding:7px 0;list-style:none}
+details:not(.mnav-wrap)>summary::-webkit-details-marker{display:none}
+details:not(.mnav-wrap)>summary::before{content:"▸ ";color:var(--blue2)}
+details:not(.mnav-wrap)[open]>summary::before{content:"▾ "}
+
+/* ============================================================
+   RESPONSIVE
+   Audited at 320 / 360 / 375 / 414 / 600 / 768 / 834 / 1024 /
+   1280 / 1440 / 1920. Two real bugs were found and are fixed
+   below: grid minmax() floors wider than small viewports, and
+   4-5 column data tables overflowing the page.
+   ============================================================ */
+
+/* 1. Grid floors must never exceed the viewport. minmax(320px,1fr)
+      forces a 320px track even at a 280px content width, which
+      pushes the whole page sideways. min() clamps it. */
+.g2{grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr))}
+.g3{grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr))}
+.g4{grid-template-columns:repeat(auto-fill,minmax(min(210px,100%),1fr))}
+.srcgrid{grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr))}
+
+/* 2. Wide data tables scroll inside their card rather than
+      dragging the page with them. We scroll instead of hiding
+      columns: this is a transparency site, so no data gets
+      dropped just because the screen is small. */
+.card{overflow-x:auto}
+@media(max-width:760px){
+  /* Give every column room to hold its widest word, then let the card scroll.
+     Squeezing a column until the header wraps mid-word is worse than a swipe.
+     Keyed off td as well as th because not every table has a header row. */
+  table:has(th:nth-child(3)),table:has(td:nth-child(3)){min-width:520px}
+  table:has(th:nth-child(4)),table:has(td:nth-child(4)){min-width:600px}
+  table:has(th:nth-child(5)),table:has(td:nth-child(5)){min-width:680px}
+  table:has(th:nth-child(6)),table:has(td:nth-child(6)){min-width:820px}
+}
+.card>table:only-child,.card>table:first-child{margin-bottom:2px}
+
+/* 3. Long dollar figures must shrink rather than clip. */
+/* break-word, never anywhere.
+   `overflow-wrap:anywhere` also shrinks an element's min-content width to a
+   single character, which is what let table columns collapse to 41px and split
+   "Committees" into "Committ / ees" on a phone. `break-word` wraps at spaces,
+   keeps min-content at the longest word, and only splits a word that genuinely
+   cannot fit a line on its own. */
+.kpi{font-size:clamp(21px,5.2vw,30px);overflow-wrap:break-word}
+.verdict{font-size:clamp(17px,4.4vw,21px);overflow-wrap:break-word}
+.amount-box .v{overflow-wrap:break-word}
+.step-title,.srccard,h1,h2.section,h3{overflow-wrap:break-word}
+td,th{overflow-wrap:break-word}
+/* ...but never mid-number. Breaking "$7,000" into "$7,0 / 00" is worse than a
+   little horizontal scroll, and figures are the whole point of this site. */
+.num,.mono,.amount-box .v,.kpi.mono{overflow-wrap:normal;word-break:keep-all}
+/* Monospaced cells hold identifiers, dates and amounts. word-break:keep-all
+   still lets a hyphen break, which turns rule ID "STR-TRADE" into "STR- /
+   TRADE" — so these cells never wrap at all and the table scrolls instead. */
+td.mono,th.mono{white-space:nowrap}
+td.num,th.num{white-space:nowrap}
+
+/* 4. Below 480px two trail steps per row leaves ~135px each,
+      which is too narrow for a committee name. Go single file. */
+@media(max-width:480px){
+  .flow{grid-template-columns:1fr;row-gap:14px}
+  .step{margin-right:0}
+  .step::after{display:none}
+  .step-art{min-height:0;padding:12px}
+  .step-title,.step-sub{min-height:0;-webkit-line-clamp:unset}
+  .step-q{min-height:0}
+}
+
+/* 5. Header: let the nav scroll horizontally instead of stacking
+      into a tall block that pushes content off the first screen. */
+@media(max-width:720px){
+  .head-row{padding:11px 0;gap:8px}
+  .brand{font-size:17px}
+  .nav{margin-left:0;width:100%;overflow-x:auto;flex-wrap:nowrap;
+    scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px}
+  .nav::-webkit-scrollbar{display:none}
+  .nav a{white-space:nowrap;padding:7px 11px;font-size:14px}
+}
+
+/* 6. Comfortable reading + touch targets on small screens. */
+@media(max-width:600px){
+  .wrap{padding:0 14px}
+  .hero{padding:24px 0 22px}
+  .hero h1{letter-spacing:-.8px}
+  .card{padding:15px;border-radius:12px}
+  h2.section{font-size:21px;margin:26px 0 6px}
+  .gauge-cell{padding:15px}
+  .btn{padding:10px 12px;min-height:42px}
+  .nav a{min-height:40px;display:flex;align-items:center}
+  th,td{padding:8px 7px}
+  table{font-size:13px}
+  .foot-in{gap:10px}
+  .note{padding:12px 13px;font-size:13px}
+}
+
+/* 7. The gauge sits above its text on narrow screens rather than
+      squeezing the explanation into a 90px column. */
+@media(max-width:520px){
+  .gauge-cell{flex-direction:column;gap:8px}
+}
+
+/* 8. Very wide screens: stop the line length from getting silly. */
+@media(min-width:1600px){
+  .wrap{max-width:1400px}
+}
+
+/* 9. Respect reduced motion and make focus visible for keyboard users. */
+a:focus-visible,.btn:focus-visible,input:focus-visible{
+  outline:3px solid var(--blue2);outline-offset:2px;border-radius:6px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* 10. Fade at the edge of the scrolling nav so it is obvious there
+       are more links off-screen rather than the last one just
+       looking clipped. */
+@media(max-width:720px){
+  .site-head{position:relative}
+  .head-row{position:relative}
+  .nav{position:relative;-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent);
+       mask-image:linear-gradient(90deg,#000 88%,transparent)}
+}
+
+/* 11. Trail illustrations do not need to be huge once the steps are
+       stacked one per row. */
+@media(max-width:480px){
+  .step-art svg{width:60px;height:60px}
+  .step-art{padding:10px}
+}
+
+/* 12. Tables that scroll get a visible right-edge cue. */
+@media(max-width:760px){
+  .card{background-image:linear-gradient(to left,rgba(18,55,107,.06),rgba(18,55,107,0) 22px);
+        background-repeat:no-repeat;background-position:right center;background-size:22px 100%;
+        background-attachment:local}
+}
+
+/* ---------- header search ---------- */
+.head-search{flex:1 1 300px;min-width:0;max-width:460px;margin-left:8px}
+.head-search input{padding:9px 13px;font-size:14px;border-radius:999px}
+@media(max-width:1080px){.head-search{order:3;flex-basis:100%;max-width:none;margin-left:0}}
+@media(max-width:720px){.head-search{order:3}.nav{order:2}}
+
+/* ---------------------------------------------------------------- header v2
+   Brand · tagline · search · a row of illustrated entity links, then a thin
+   secondary bar for the pages that keep us honest (methodology, corrections). */
+.tagline{font-size:12.5px;line-height:1.35;color:var(--dim);flex:none;
+  border-left:2px solid var(--line);padding-left:10px;margin-left:2px}
+.tagline b{color:var(--blue);font-weight:800}
+
+.head-search{position:relative}
+.head-search-ico{position:absolute;left:12px;top:50%;transform:translateY(-50%);
+  color:var(--faint);display:flex;pointer-events:none}
+.head-search input{padding-left:34px}
+
+.iconnav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+.iconnav a{display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:7px 13px 6px;border-radius:12px;color:var(--dim);min-width:66px}
+.iconnav a:hover{background:var(--gray-bg);text-decoration:none;color:var(--navy)}
+.iconnav-i{color:var(--blue);display:flex;line-height:0}
+.iconnav a:hover .iconnav-i{color:var(--navy)}
+.iconnav-l{font-size:11.5px;font-weight:700;letter-spacing:.1px;white-space:nowrap}
+
+.subnav{display:flex;gap:16px;padding:0 0 9px;flex-wrap:wrap}
+.subnav a{font-size:12.5px;color:var(--faint);font-weight:600}
+.subnav a:hover{color:var(--blue)}
+
+@media(max-width:1180px){.tagline{display:none}}
+@media(max-width:1080px){
+  .iconnav{margin-left:0;order:2;width:100%;overflow-x:auto;flex-wrap:nowrap;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none;
+    /* fade the trailing edge so it reads as "there is more this way" rather
+       than as a row that happens to end at the screen edge */
+    -webkit-mask-image:linear-gradient(90deg,#000 90%,transparent);
+    mask-image:linear-gradient(90deg,#000 90%,transparent)}
+  .iconnav::-webkit-scrollbar{display:none}
+  .head-search{order:3}
+}
+@media(max-width:520px){
+  .iconnav a{min-width:58px;padding:6px 7px 5px}
+  .iconnav-l{font-size:10.5px}
+  .subnav{gap:12px}
+}
+
+/* On touch widths the persistent chrome links get a real hit area. Inline links
+   inside prose and table cells stay inline on purpose — enlarging those would
+   break the reading line, and the row itself is not a tap target. */
+@media(max-width:520px){
+  .subnav a{min-height:32px;display:flex;align-items:center}
+  .foot-in a{display:inline-block;padding:2px 0}
+  .iconnav a{min-height:46px;justify-content:center}
+}
+
+/* Definition list for label / figure / note rows. Three aligned columns when
+   there is room, stacked blocks when there is not — no sideways scroll for
+   content that was never really tabular. */
+.deflist{margin:10px 0 0;display:grid;gap:0}
+.deflist>div{display:grid;grid-template-columns:minmax(140px,auto) minmax(70px,auto) 1fr;
+  gap:6px 16px;align-items:baseline;padding:11px 0;border-top:1px solid var(--line)}
+.deflist>div:first-child{border-top:0}
+.deflist dt{font-weight:700;color:var(--navy)}
+.deflist dd{margin:0}
+.deflist dd.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(max-width:560px){
+  .deflist>div{grid-template-columns:1fr auto;gap:2px 12px}
+  .deflist dt{grid-column:1}
+  .deflist dd.num{grid-column:2;grid-row:1}
+  .deflist dd.small{grid-column:1/-1}
+}
+
+/* ------------------------------------------------------- mobile menu
+   Below 860px the six-item icon row and the secondary bar collapse behind a
+   menu button, leaving the header two lines: brand + button, then search.
+   Search stays in the header rather than inside the menu — on this site it is
+   the primary action, not a secondary one. */
+.mnav-wrap{display:none}
+
+/* Above the scrim, or the scrim swallows the tap that is supposed to close the
+   menu — the button reads as dead exactly when you need it. Caught by a tap
+   test, not by looking at it: the button is fully visible either way. */
+.burger{position:relative;z-index:45;
+  display:block;background:#fff;border:1px solid var(--line);border-radius:999px;
+  padding:8px 14px 8px 12px;color:var(--navy);font:inherit;font-weight:700;
+  font-size:13.5px;cursor:pointer;width:max-content;
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.burger:hover{border-color:var(--blue);color:var(--blue)}
+.burger:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.burger-in{display:flex;align-items:center;gap:8px;min-height:24px}
+.burger-box{display:flex;flex-direction:column;justify-content:center;gap:4px;
+  width:18px;height:14px}
+.burger-box i{display:block;height:2.4px;border-radius:2px;background:currentColor;
+  transition:transform .18s ease,opacity .14s ease}
+.burger-box.is-open i:nth-child(1){transform:translateY(6.4px) rotate(45deg)}
+.burger-box.is-open i:nth-child(2){opacity:0}
+.burger-box.is-open i:nth-child(3){transform:translateY(-6.4px) rotate(-45deg)}
+@media(prefers-reduced-motion:reduce){.burger-box i{transition:none}}
+
+/* A real element, so an outside tap is a tap on something clickable. iOS does
+   not reliably synthesise mouse events over plain text, which is why a document
+   listener is not enough. */
+.mnav-scrim{position:fixed;inset:0;z-index:30;background:rgba(18,55,107,.18)}
+
+/* The panel hangs off the header rather than sitting in the flex row: in flow,
+   opening the menu would shove the search bar down and move the button out from
+   under the reader's thumb mid-tap. */
+.mnav{position:absolute;left:0;right:0;top:100%;z-index:40;
+  background:var(--card);border-bottom:1px solid var(--line);
+  box-shadow:0 14px 28px rgba(18,55,107,.10);
+  padding:2px 16px 14px;max-height:calc(100dvh - 118px);overflow-y:auto;
+  overscroll-behavior:contain}
+.mnav[hidden]{display:none}
+.mnav-item{display:flex;gap:13px;align-items:flex-start;padding:12px 4px;
+  border-top:1px solid var(--line);color:inherit;min-height:52px}
+.mnav-item:first-child{border-top:0}
+.mnav-item:hover{text-decoration:none;background:var(--gray-bg)}
+.mnav-item:focus-visible{outline:2px solid var(--blue);outline-offset:-2px;border-radius:8px}
+.mnav-item[aria-current="page"]{background:var(--gray-bg)}
+.mnav-ico{color:var(--blue);line-height:0;flex:none;margin-top:2px}
+.mnav-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.mnav-text b{color:var(--navy);font-size:15.5px;font-weight:800}
+.mnav-text em{font-style:normal;font-size:12.5px;color:var(--faint);line-height:1.35}
+.mnav-sub{display:flex;flex-wrap:wrap;gap:8px 18px;padding:14px 4px 4px;
+  border-top:1px solid var(--line);margin-top:6px}
+.mnav-sub a{font-size:13.5px;font-weight:600;color:var(--dim);min-height:32px;
+  display:flex;align-items:center}
+.mnav-sub a:hover{color:var(--blue)}
+
+/* Scripting off: the button cannot work, so the links render in place of it. */
+.mnav-noscript{position:static;box-shadow:none;border-bottom:0;border-top:1px solid var(--line);
+  max-height:none;margin-top:10px;padding:2px 0 4px}
+
+@media(max-width:860px){
+  .site-head{position:relative}
+  .mnav-wrap{display:block;margin-left:auto;flex:none;order:2}
+  .iconnav,.subnav{display:none}
+  .head-search{order:3;flex-basis:100%;max-width:none;margin-left:0}
+  noscript .mnav-noscript{display:block}
+}

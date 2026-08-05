@@ -1,0 +1,14 @@
+node_modules/
+.next/
+.env*.local
+.vercel
+*.tsbuildinfo
+__pycache__/
+*.pyc
+pipeline/civictrace.db
+pipeline/sql/
+pipeline/data/bills_raw/
+pipeline/data/votes_raw/
+pipeline/data/*.zip
+pipeline/data/*_x/
+pipeline/*.html
