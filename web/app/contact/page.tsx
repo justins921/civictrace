@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { CONTACT_EMAIL, DOES_NOT_PROVE } from '@/lib/db'
+import { ReportForm } from './ReportForm'
 
-export const revalidate = 3600
+export const dynamic = 'force-dynamic'
 
 const KINDS: [string, string, string][] = [
   ['Incorrect contribution data',
@@ -25,10 +26,6 @@ const KINDS: [string, string, string][] = [
 ]
 
 export default function Contact() {
-  const mailto = CONTACT_EMAIL
-    ? `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('CivicTrace correction')}`
-    : null
-
   return (
     <div className="wrap">
       <h2 className="section">Report a problem</h2>
@@ -38,22 +35,15 @@ export default function Contact() {
         <Link href="/corrections">corrections log</Link> with what changed and when.
       </p>
 
-      {mailto ? (
-        <div className="card">
-          <h3>Send it to us</h3>
-          <p className="small">
-            Include the page URL and enough detail that we can check it against the filing. There is
-            no form and no account — just email.
-          </p>
-          <a className="btn solid" style={{ marginTop: 6 }} href={mailto}>{CONTACT_EMAIL}</a>
-        </div>
-      ) : (
-        <div className="note" style={{ borderLeftColor: '#c2413c', background: '#fdeceb', color: '#7a2b26' }}>
-          <strong>No contact address is configured yet.</strong> This is a prototype. Before this
-          site is promoted publicly, set <code>NEXT_PUBLIC_CONTACT_EMAIL</code> so that reports
-          reach a real inbox. Publishing a corrections policy that nobody can actually invoke would
-          be worse than publishing none.
-        </div>
+      <ReportForm />
+
+      {CONTACT_EMAIL && (
+        <p className="small" style={{ marginTop: 12 }}>
+          You can also email <a href={`mailto:${CONTACT_EMAIL}?subject=${
+            encodeURIComponent('CivicTrace correction')}`}>{CONTACT_EMAIL}</a> if you would rather
+          not use a form. The form is better only because it asks for the page and the figure, which
+          is usually what an emailed report is missing.
+        </p>
       )}
 
       <h2 className="section">What to report, and what to include</h2>

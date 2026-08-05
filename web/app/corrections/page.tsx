@@ -6,7 +6,10 @@ export const revalidate = 600
 const CAT_ORDER = ['Contribution data', 'Vote data', 'Timing', 'Methodology', 'Wording', 'Branding']
 
 export default async function Corrections() {
-  const { data: rows } = await db.from('correction_log').select('*')
+  const [{ data: rows }, { data: stats }] = await Promise.all([
+    db.from('correction_log').select('*'),
+    db.from('report_stats').select('*').single(),
+  ])
   const list = rows || []
   const byCat: Record<string, number> = {}
   for (const r of list) byCat[r.category || 'Other'] = (byCat[r.category || 'Other'] || 0) + 1
@@ -117,11 +120,19 @@ export default async function Corrections() {
         </div>
       </div>
 
-      {!CONTACT_EMAIL && (
-        <div className="note" style={{ marginTop: 16, borderLeftColor: '#c2413c', background: '#fdeceb', color: '#7a2b26' }}>
-          <strong>Not launch-ready:</strong> no corrections address is configured yet. Set{' '}
-          <code>NEXT_PUBLIC_CONTACT_EMAIL</code> before promoting this site publicly — a
-          corrections policy with no working way to reach anyone is worse than none at all.
+      {stats && (
+        <div className="note" style={{ marginTop: 16 }}>
+          <strong>The queue behind this log.</strong>{' '}
+          {Number(stats.total_reports) === 0
+            ? 'No reports have come in yet.'
+            : <>Readers have filed <strong>{Number(stats.total_reports)}</strong> report
+              {Number(stats.total_reports) === 1 ? '' : 's'} through the form,{' '}
+              <strong>{Number(stats.open_reports)}</strong> of which
+              {Number(stats.open_reports) === 1 ? ' is' : ' are'} still open.</>}{' '}
+          We publish the count because a corrections log with no visible inflow tells you nothing
+          about whether anyone is actually checking. Report contents stay private — they can name
+          people and carry reply addresses — but every one that results in a change appears above
+          with the reporter&apos;s reference code.
         </div>
       )}
     </div>
