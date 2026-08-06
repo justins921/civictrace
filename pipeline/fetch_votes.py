@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fetch House roll-call XML from the Clerk and Senate roll-call XML, store raw + parsed."""
-import time, sqlite3, urllib.request, xml.etree.ElementTree as ET, os, sys
+import time, sqlite3, urllib.request, urllib.error, xml.etree.ElementTree as ET, os, sys
 from pathlib import Path
 
 UA = "CivicTrace/0.1 (nonpartisan public-records prototype; contact: justin.sobojinski@gmail.com)"
@@ -24,17 +24,38 @@ CREATE INDEX ix_vp_key ON vote_position(vote_key);
 """)
 
 
-def get(url, cache):
+MISSES = []      # every URL we could not fetch, so the caller can refuse to publish
+
+
+def get(url, cache, attempts=4):
+    """Fetch with retries, and record anything we ultimately could not get.
+
+    The Senate's XML endpoint drops TLS handshakes often enough that a single
+    attempt loses a handful of roll calls per run. Three missing votes out of 356
+    is under any sane shrink threshold, so it would have published quietly with
+    holes in the vote record — the worst possible failure for this site. Retry,
+    then fail loudly rather than silently serve less than we had yesterday.
+    """
     p = RAW / cache
     if p.exists() and p.stat().st_size > 0:
         return p.read_bytes()
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    try:
-        b = urllib.request.urlopen(req, timeout=30).read()
-    except Exception as e:
-        print(f"  !! {url}: {e}"); return None
-    p.write_bytes(b); time.sleep(0.7)
-    return b
+    for attempt in range(attempts):
+        try:
+            b = urllib.request.urlopen(req, timeout=45).read()
+            p.write_bytes(b); time.sleep(0.7)
+            return b
+        except urllib.error.HTTPError as e:
+            if e.code == 404:                 # genuinely not there; not an outage
+                return None
+            last = e
+        except Exception as e:
+            last = e
+        if attempt < attempts - 1:
+            time.sleep(1.5 * (2 ** attempt))  # 1.5s, 3s, 6s
+    print(f"  !! gave up after {attempts} attempts: {url}: {last}")
+    MISSES.append(url)
+    return None
 
 
 def txt(el, path, default=""):
@@ -125,3 +146,10 @@ if __name__ == "__main__":
     print(c.execute("SELECT COUNT(*) FROM rollcall").fetchone(),
           c.execute("SELECT COUNT(*) FROM vote_position").fetchone())
     con.close()
+    if MISSES:
+        # Exit non-zero so the refresh aborts before publishing. A vote record
+        # with holes in it is worse than yesterday's complete one.
+        print(f"\n{len(MISSES)} roll call(s) could not be fetched:", file=sys.stderr)
+        for u in MISSES[:10]:
+            print("  " + u, file=sys.stderr)
+        sys.exit(1)

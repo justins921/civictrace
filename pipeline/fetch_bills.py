@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Pull GovInfo BILLSTATUS XML for every bill that appears in a stored roll call."""
-import re, time, sqlite3, urllib.request, xml.etree.ElementTree as ET
+import re, time, sqlite3, urllib.request, urllib.error, xml.etree.ElementTree as ET
 from pathlib import Path
 
 UA = "CivicTrace/0.1 (nonpartisan public-records prototype)"
@@ -22,6 +22,25 @@ CREATE TABLE bill (
 # Getting this wrong is why the Senate produced no trails at all until Aug 2026.
 TYPES = {"HR": "hr", "S": "s", "HRES": "hres", "SRES": "sres",
          "HJRES": "hjres", "SJRES": "sjres", "HCONRES": "hconres", "SCONRES": "sconres"}
+
+
+def fetch_with_retry(url, attempts=4):
+    """Same reasoning as the vote fetcher: a transient network failure must not
+    quietly become a missing bill."""
+    last = None
+    for attempt in range(attempts):
+        try:
+            return urllib.request.urlopen(
+                urllib.request.Request(url, headers={"User-Agent": UA}), timeout=45).read()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise
+            last = e
+        except Exception as e:
+            last = e
+        if attempt < attempts - 1:
+            time.sleep(1.5 * (2 ** attempt))
+    raise last
 
 
 def parse_legis(num):
@@ -51,8 +70,7 @@ def main():
         url = f"https://www.govinfo.gov/bulkdata/BILLSTATUS/{congress}/{bt}/BILLSTATUS-{key}.xml"
         if not f.exists():
             try:
-                f.write_bytes(urllib.request.urlopen(
-                    urllib.request.Request(url, headers={"User-Agent": UA}), timeout=25).read())
+                f.write_bytes(fetch_with_retry(url))
                 time.sleep(0.4)
             except Exception as e:
                 print("  !!", key, e); continue
