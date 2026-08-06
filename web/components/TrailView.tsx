@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { money, officeLine, labelClass, DOES_NOT_PROVE, hrefFor } from '@/lib/db'
+import { money, officeLine, labelClass, DOES_NOT_PROVE, hrefFor, CYCLE_LABEL } from '@/lib/db'
 import { Gauge } from './Gauge'
 import {
   DonorArt, PoolArt, CapitolArt, VoteArt, ClockArt, BillArt,
@@ -85,7 +85,7 @@ export function TrailView({ t }: { t: Trail }) {
           title={top?.name || '—'} titleHref={top ? hrefFor.committee(top.cmte_id) : undefined}
           sub={top ? [top.sector, top.side].filter(Boolean).join(' · ') : undefined}
           amount={money(top?.total)}
-          amountLabel={`from this committee alone, 2026 cycle · rule ${top?.rule_id || '—'}`}
+          amountLabel={`from this committee alone, ${CYCLE_LABEL} · rule ${top?.rule_id || '—'}`}
           footer={top && <a href={top.fec_url} target="_blank" rel="noopener noreferrer">FEC committee ↗</a>} />
 
         <Step n={2} label="Sector contributors" question="Who else in that sector gave?"
@@ -102,7 +102,7 @@ export function TrailView({ t }: { t: Trail }) {
         <Step n={3} label="The politician" question="Who received the money?"
           art={<CapitolArt size={74} />}
           title={t.full_name} titleHref={hrefFor.member(t.slug)} sub={officeLine(t)}
-          amount={money(t.total_pac_dollars)} amountLabel="total PAC receipts, 2026 cycle"
+          amount={money(t.total_pac_dollars)} amountLabel={`total PAC receipts, ${CYCLE_LABEL}`}
           footer={t.fec_cand_id && <a href={`https://www.fec.gov/data/candidate/${t.fec_cand_id}/`}
             target="_blank" rel="noopener noreferrer">FEC candidate ↗</a>} />
 

@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { db, money, partyLetter, officeLine, labelClass, trailHref, isYes, hrefFor } from '@/lib/db'
+import { db, money, partyLetter, officeLine, labelClass, trailHref, isYes, hrefFor, CYCLE, CYCLE_LABEL } from '@/lib/db'
 import { CapitolArt } from '@/components/Art'
 
 export const revalidate = 3600
@@ -17,11 +17,18 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
 
   const [{ data: sectors }, { data: cmtes }, { data: trails }, { data: votes }, { data: ears }] =
     await Promise.all([
-      db.from('member_sector_money').select('*').eq('bioguide', m.bioguide).eq('cycle', 2026),
-      db.from('member_top_committee').select('*').eq('bioguide', m.bioguide).eq('cycle', 2026)
+      db.from('member_sector_money').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE),
+      db.from('member_top_committee').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE)
         .order('total', { ascending: false }).limit(25),
       db.from('trail_full').select('*').eq('bioguide', m.bioguide).order('rank').limit(12),
-      db.from('vote_position').select('*, rollcall(*)').eq('bioguide', m.bioguide).limit(400),
+      // Ordered in the database, not in the browser. "The 15 most recent votes"
+      // was previously computed by pulling an unordered page of 400 and sorting
+      // what came back — correct only for as long as no member exceeded 400 roll
+      // calls. The House went from 140 to 283 in one refresh; the next time that
+      // cap is crossed the page would have shown 15 arbitrary votes and called
+      // them recent, with nothing to notice it by.
+      db.from('vote_position').select('*, rollcall!inner(*)').eq('bioguide', m.bioguide)
+        .order('iso_date', { referencedTable: 'rollcall', ascending: false }).limit(1200),
       db.from('earmark').select('*').eq('bioguide', m.bioguide).order('amount', { ascending: false }),
     ])
 
@@ -54,7 +61,7 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
           </div>
         </div>
         <div style={{ flex: 'none' }}>
-          <div className="eyebrow">PAC money, 2026 cycle</div>
+          <div className="eyebrow">PAC money, {CYCLE_LABEL}</div>
           <div className="kpi mono">{money(total)}</div>
           <div className="small">{(cmtes || []).length}+ committees · giver-side ledger</div>
         </div>
@@ -77,11 +84,17 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
           </div>
         </div>
         <div className="card">
+          {/* Eight, not fourteen. These two cards sit in a stretched row, and a
+              fourteen-row table with two-line cells left the sector card beside
+              it with ~660px of blank — the same ragged-box problem as before,
+              caused by the other half this time. Eight rows lands within a line
+              or two of the sector list at every width, and the count below says
+              plainly what is not shown. */}
           <div className="eyebrow">Top committees</div>
           <table style={{ marginTop: 8 }}>
             <thead><tr><th>Committee</th><th>Sector</th><th className="num">Total</th></tr></thead>
             <tbody>
-              {(cmtes || []).slice(0, 14).map((c: any) => (
+              {(cmtes || []).slice(0, 8).map((c: any) => (
                 <tr key={c.filer_cmte_id}>
                   <td><Link href={hrefFor.committee(c.filer_cmte_id)}>{c.cmte_name}</Link>
                     <div className="tiny">{c.n_payments} payment{c.n_payments === 1 ? '' : 's'}
@@ -93,6 +106,13 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
               ))}
             </tbody>
           </table>
+          {(cmtes || []).length > 8 && (
+            <div className="tiny card-foot">
+              Showing the 8 largest of <strong>{(cmtes || []).length}</strong> committees that gave
+              to this member in the {CYCLE_LABEL}. Every one of them is listed on{' '}
+              <Link href="/donors">the donors page</Link>.
+            </div>
+          )}
         </div>
       </div>
 

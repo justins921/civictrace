@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Pull GovInfo BILLSTATUS XML for every bill that appears in a stored roll call."""
-import re, time, sqlite3, urllib.request, urllib.error, xml.etree.ElementTree as ET
+import re, sys, time, collections, sqlite3, urllib.request, urllib.error, xml.etree.ElementTree as ET
 from pathlib import Path
 
 UA = "CivicTrace/0.1 (nonpartisan public-records prototype)"
@@ -60,23 +60,45 @@ def strip_html(s):
 def main():
     c.executescript(DDL)
     rows = c.execute("SELECT DISTINCT congress, legis_num FROM rollcall WHERE legis_num<>''").fetchall()
-    done = 0
+
+    # Split the work list before touching the network, because the old summary
+    # line ("bills stored: 131 / 234") invited exactly one wrong reading and an
+    # outside reviewer made it: that 103 bills had failed to download. They had
+    # not. Most of the gap was nominations and amendments — roll calls that are
+    # not bills and never will be — and the rest was the same bill spelled two
+    # ways ("H R 1" and "H.R. 1") collapsing to one key. Report the three
+    # populations separately so nobody has to guess again.
+    wanted, skipped = {}, []
     for congress, legis in rows:
         p = parse_legis(legis)
-        if not p or not congress: continue
-        bt, bn = p
-        key = f"{congress}{bt}{bn}"
+        if not p or not congress:
+            skipped.append(legis); continue
+        wanted[f"{congress}{p[0]}{p[1]}"] = (congress, p[0], p[1])
+
+    unreachable = []
+    done = 0
+    for key, (congress, bt, bn) in sorted(wanted.items()):
         f = RAW / f"BILLSTATUS-{key}.xml"
         url = f"https://www.govinfo.gov/bulkdata/BILLSTATUS/{congress}/{bt}/BILLSTATUS-{key}.xml"
         if not f.exists():
             try:
                 f.write_bytes(fetch_with_retry(url))
                 time.sleep(0.4)
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    # GovInfo genuinely has no BILLSTATUS for this one. That is a
+                    # fact about the record, not a failure of ours.
+                    unreachable.append(f"{key} (404, no BILLSTATUS published)")
+                else:
+                    unreachable.append(f"{key} (HTTP {e.code})")
+                continue
             except Exception as e:
-                print("  !!", key, e); continue
+                unreachable.append(f"{key} ({e})"); continue
         try: b = ET.parse(f).getroot().find("bill")
-        except Exception: continue
-        if b is None: continue
+        except Exception as e:
+            unreachable.append(f"{key} (unparseable XML: {e})"); continue
+        if b is None:
+            unreachable.append(f"{key} (XML has no <bill> element)"); continue
         sp = b.find("sponsors/item")
         sm = b.find("summaries/summary")
         subs = sorted({s.findtext("name") for s in b.iter("legislativeSubject") if s.findtext("name")})
@@ -93,10 +115,25 @@ def main():
             f"{'house-bill' if bt=='hr' else 'senate-bill' if bt=='s' else bt}/{bn}"))
         done += 1
     con.commit()
-    print(f"bills stored: {done} / {len(rows)}")
+    kinds = collections.Counter(
+        "nomination" if (s or "").upper().startswith("PN")
+        else "amendment" if "AMDT" in (s or "").upper()
+        else "procedural" for s in skipped)
+    print(f"bills stored: {done} of {len(wanted)} distinct bills referenced by a roll call")
+    print(f"  not bills at all: {len(skipped)} roll-call subjects "
+          f"({', '.join(f'{v} {k}' for k, v in kinds.most_common())})")
     for r in c.execute("SELECT policy_area, COUNT(*) FROM bill GROUP BY 1 ORDER BY 2 DESC LIMIT 15"):
         print(r)
     con.close()
+
+    # A bill we could not fetch is a bill page that will render with no title,
+    # no summary and no sponsor. Publishing that is worse than not refreshing,
+    # so the run stops here — same rule the vote fetcher follows.
+    if unreachable:
+        print(f"\n{len(unreachable)} bill(s) could not be loaded:", file=sys.stderr)
+        for u in unreachable:
+            print("  - " + u, file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == '__main__':

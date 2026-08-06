@@ -1,12 +1,12 @@
 import Link from 'next/link'
-import { db, money, partyLetter, officeLine, hrefFor } from '@/lib/db'
+import { db, money, partyLetter, officeLine, hrefFor, CYCLE, CYCLE_LABEL } from '@/lib/db'
 
 export const revalidate = 3600
 
 export default async function Delegation() {
   const [{ data: members }, { data: sectors }] = await Promise.all([
     db.from('member').select('*').order('chamber', { ascending: false }).order('district'),
-    db.from('member_sector_money').select('*').eq('cycle', 2026),
+    db.from('member_sector_money').select('*').eq('cycle', CYCLE),
   ])
 
   const byBio: Record<string, any[]> = {}
@@ -18,7 +18,7 @@ export default async function Delegation() {
       <h2 className="section">Wisconsin&apos;s federal delegation</h2>
       <p className="lede">
         Ten members. Every dollar below is a direct PAC contribution (FEC transaction type 24K)
-        reported in the 2026 cycle, with memo entries excluded so nothing is counted twice.
+        reported in the {CYCLE_LABEL}, with memo entries excluded so nothing is counted twice.
         Independent expenditures are tracked separately and are <em>not</em> included — they are
         spending <em>about</em> a candidate, not money <em>to</em> them.
       </p>
@@ -48,7 +48,7 @@ export default async function Delegation() {
               </h3>
               <div className="small">{officeLine(m)}</div>
               <div style={{ marginTop: 14 }}>
-                <div className="eyebrow">PAC money, 2026 cycle</div>
+                <div className="eyebrow">PAC money, {CYCLE_LABEL}</div>
                 <div className="kpi mono">{money(total)}</div>
                 <div className="small">{cmtes} committees</div>
               </div>

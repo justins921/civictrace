@@ -59,7 +59,8 @@ export function ReportForm({ defaultUrl = '' }: { defaultUrl?: string }) {
       action={async (fd: FormData) => {
         setState({ status: 'sending' })
         const r = await fileReport(fd)
-        setState(r.ok ? { status: 'sent', ref: r.ref } : { status: 'error', message: r.message })
+        if (r.ok) setState({ status: 'sent', ref: r.ref })
+        else setState({ status: 'error', message: r.message })
       }}
     >
       <div className="eyebrow">Report a problem</div>

@@ -2,7 +2,11 @@
 
 import { db } from '@/lib/db'
 
-type Result = { ok: true; ref: string } | { ok: false; message: string }
+// One flat shape rather than a discriminated union: this project compiles with
+// `strict: false`, and without strictNullChecks TypeScript will not narrow a
+// union on a boolean literal. The union looked safer and silently wasn't —
+// every read of `.message` was an error the build did not surface.
+export type Result = { ok: boolean; ref: string; message: string }
 
 export async function fileReport(fd: FormData): Promise<Result> {
   // Honeypot, as a signal and never as a filter.
@@ -23,7 +27,7 @@ export async function fileReport(fd: FormData): Promise<Result> {
 
   const problem = s('problem')
   if (!problem) {
-    return { ok: false, message: 'Please describe what is wrong — that field is the report.' }
+    return { ok: false, ref: '', message: 'Please describe what is wrong — that field is the report.' }
   }
 
   const { data, error } = await db.rpc('file_report', {
@@ -53,10 +57,11 @@ export async function fileReport(fd: FormData): Promise<Result> {
     const code = (error as { code?: string } | null)?.code || ''
     return {
       ok: false,
+      ref: '',
       message: HUMAN[code]
         || 'Something went wrong on our end and the report was not saved. Please try again in a moment.',
     }
   }
 
-  return { ok: true, ref: String(data) }
+  return { ok: true, ref: String(data), message: '' }
 }

@@ -29,7 +29,21 @@ export default async function Bills() {
   const matched = list.filter((b: any) => !b.is_broad && sectorsFor[b.bill_key]?.length)
   const unmatched = list.filter((b: any) => !b.is_broad && !sectorsFor[b.bill_key]?.length)
   const reconciles = matched.length + broad.length + unmatched.length === list.length
-  const votes = (rcs || []).length
+
+  // "N bills across M roll calls" read as though every roll call belonged to a
+  // bill. It does not: a third of them are confirmation votes on nominations,
+  // votes on amendments, and procedural motions to adjourn. Counting those as
+  // bill votes inflated the number and made the two figures irreconcilable to
+  // anyone who tried. Split them, and say what the remainder is.
+  const norm = (v: string) => (v || '').replace(/[^a-z0-9]/gi, '').toUpperCase()
+  const billLabels = new Set(list.map((b: any) => norm(b.bill_type + b.bill_num)))
+  const allRolls = rcs || []
+  const billVotes = allRolls.filter((r: any) => billLabels.has(norm(r.legis_num)))
+  const otherVotes = allRolls.length - billVotes.length
+  const nominations = allRolls.filter((r: any) =>
+    (r.legis_num || '').trim().toUpperCase().startsWith('PN')).length
+  const amendments = allRolls.filter((r: any) =>
+    (r.legis_num || '').toUpperCase().includes('AMDT')).length
 
   const num = (b: any) => `${String(b.bill_type || '').toUpperCase().replace('HRES', 'H.Res.')
     .replace('HJRES', 'H.J.Res.').replace('HCONRES', 'H.Con.Res.')
@@ -40,10 +54,20 @@ export default async function Bills() {
       <h2 className="section">Bills</h2>
       <p className="lede">
         Every bill a Wisconsin member has taken a recorded position on this Congress —{' '}
-        <strong>{list.length}</strong> bills across <strong>{votes}</strong> roll calls. Each page
-        carries the Congressional Research Service summary <em>verbatim</em>; no language model
-        wrote or edited a word of it.
+        <strong>{list.length}</strong> bills, decided across{' '}
+        <strong>{billVotes.length.toLocaleString()}</strong> roll calls. Each page carries the
+        Congressional Research Service summary <em>verbatim</em>; no language model wrote or
+        edited a word of it.
       </p>
+      {otherVotes > 0 && (
+        <p className="small" style={{ marginTop: -6 }}>
+          The delegation cast <strong>{allRolls.length.toLocaleString()}</strong> recorded votes in
+          total. The other <strong>{otherVotes.toLocaleString()}</strong> were not votes on bills
+          — {nominations.toLocaleString()} on nominations, {amendments.toLocaleString()} on
+          amendments, and the rest procedural. They appear on each member&apos;s page but have no
+          bill page here, because there is no bill.
+        </p>
+      )}
 
       <div className="grid g4" style={{ marginTop: 4 }}>
         <div className="card"><div className="eyebrow">Bills loaded</div>

@@ -73,8 +73,30 @@ def main():
     require("each sector's member count matches its detail page", not mism, "; ".join(mism[:4]))
 
     # Nothing published may be scoped to another cycle.
-    other = q(f"committee_profile?select=cmte_id&cycle=neq.{cyc}&payments_to_wi=gt.0&limit=1")
-    require("a cycle filter is required to see other cycles", isinstance(other, list))
+    #
+    # This check used to read `isinstance(other, list)`, which PostgREST satisfies
+    # for literally any successful response — including an empty one. It passed
+    # on every run and asserted nothing. The invariant it was meant to enforce is
+    # that other cycles exist in the database but never leak into a figure the
+    # published cycle claims, so it has to be stated as two facts, both checkable.
+    other = q(f"committee_profile?select=cmte_id,total_to_wi&cycle=neq.{cyc}&payments_to_wi=gt.0")
+    require("other cycles are present in the database (otherwise this check is vacuous)",
+            len(other) > 0, f"{len(other)} rows outside cycle {cyc}")
+
+    # If the grand total were being computed across cycles, it would equal the
+    # all-cycle sum rather than this cycle's. Prove it does not.
+    every = q("committee_profile?select=total_to_wi&payments_to_wi=gt.0")
+    all_cycles = round(sum(float(x["total_to_wi"]) for x in every), 2)
+    this_cycle = round(float(r["via_contrib"]), 2)
+    require("the grand total is this cycle only, not every cycle summed",
+            f"{all_cycles:.2f}" != f"{this_cycle:.2f}" or not other,
+            f"cycle {cyc} = {this_cycle}, all cycles = {all_cycles}")
+
+    # And the published cycle's own committee rows must add to it exactly.
+    mine = q(f"committee_profile?select=total_to_wi&cycle=eq.{cyc}&payments_to_wi=gt.0")
+    msum = round(sum(float(x["total_to_wi"]) for x in mine), 2)
+    require("committee rows in the published cycle sum to the grand total",
+            f"{msum:.2f}" == f"{this_cycle:.2f}", f"{msum} vs {this_cycle}")
 
     print()
     if failures:

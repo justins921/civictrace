@@ -22,10 +22,24 @@ export default async function Trails({ searchParams }:
   if (sp.member) qy = qy.eq('slug', sp.member)
   qy = qy.range((page - 1) * PER_PAGE, page * PER_PAGE - 1)
 
-  const [{ data: trails, count: matched }, { data: all }, { data: sym }, { data: members }] =
-    await Promise.all([
+  // Label counts come back as counts, not as rows to be counted here.
+  //
+  // This used to be `select('label')` over the whole table, tallied in JS. That
+  // is fine until the table passes PostgREST's 1000-row ceiling, which it did
+  // the moment the House vote backfill landed: the lede read "1000 member-vote
+  // pairs" while the pagination directly below it read "1,032 trails", and the
+  // label percentages were computed from a truncated sample presented as the
+  // whole. Same defect as the cross-cycle total — a figure that is only correct
+  // while the data stays small.
+  const [{ data: trails, count: matched }, labelCounts, { count: grandTotal },
+         { data: sym }, { data: members }] = await Promise.all([
     qy,
-    db.from('money_trail').select('label'),
+    Promise.all(LABELS.map(async (l: string) => {
+      const { count } = await db.from('money_trail')
+        .select('label', { count: 'exact', head: true }).eq('label', l)
+      return [l, count || 0] as const
+    })),
+    db.from('money_trail').select('label', { count: 'exact', head: true }),
     db.from('label_symmetry').select('*'),
     db.from('member').select('slug,full_name,party').order('full_name'),
   ])
@@ -42,9 +56,12 @@ export default async function Trails({ searchParams }:
     return q ? `/trails?${q}` : '/trails'
   }
 
-  const counts: Record<string, number> = {}
-  for (const l of all || []) counts[l.label] = (counts[l.label] || 0) + 1
-  const total = (all || []).length
+  const counts: Record<string, number> = Object.fromEntries(labelCounts)
+  const total = grandTotal || 0
+  // If the labels ever stop partitioning the table, the breakdown below is
+  // describing something other than the total printed beside it.
+  const labelled = labelCounts.reduce((a, [, n]) => a + n, 0)
+  const labelsPartition = labelled === total
 
   const byParty: Record<string, number> = {}
   for (const s of sym || []) byParty[s.party] = (byParty[s.party] || 0) + Number(s.n)
@@ -59,8 +76,8 @@ export default async function Trails({ searchParams }:
     <div className="wrap">
       <h2 className="section">Money trails</h2>
       <p className="lede">
-        {total} member-vote pairs where a bill&apos;s sector overlaps with PAC money the member
-        received. A trail appearing here is <strong>not</strong> an allegation.
+        {total.toLocaleString()} member-vote pairs where a bill&apos;s sector overlaps with PAC
+        money the member received. A trail appearing here is <strong>not</strong> an allegation.
       </p>
 
       <div className="card">
@@ -82,7 +99,7 @@ export default async function Trails({ searchParams }:
         </div>
         <div className="rule" />
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Link className={`badge ${sp.label ? 'b-low' : 'b-some'}`} href="/trails">All {total}</Link>
+          <Link className={`badge ${sp.label ? 'b-low' : 'b-some'}`} href="/trails">All {total.toLocaleString()}</Link>
           {LABELS.map(l => (
             <Link key={l} href={qs({ label: l, member: undefined, p: undefined })}
               className={`badge ${sp.label === l ? 'b-some' : labelClass(l).badge}`}>
@@ -90,6 +107,13 @@ export default async function Trails({ searchParams }:
             </Link>
           ))}
         </div>
+        {!labelsPartition && (
+          <p className="tiny" style={{ marginTop: 8, marginBottom: 0, color: '#b23c45' }}>
+            These label counts add to {labelled.toLocaleString()}, not {total.toLocaleString()}.
+            That is a bug in our classification, not a finding — please{' '}
+            <Link href="/contact">report it</Link>.
+          </p>
+        )}
         <div className="rule" />
         <div className="eyebrow">Partisan symmetry check — published on purpose</div>
         <div className="small" style={{ marginTop: 6 }}>

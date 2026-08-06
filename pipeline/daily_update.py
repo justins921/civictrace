@@ -213,6 +213,56 @@ def guard_against_shrink(before, rows_by_table, tolerance=0.05):
         raise RuntimeError("refresh lost records, refusing to publish — " + "; ".join(shrunk))
 
 
+def preflight():
+    """Check the export before it becomes the site.
+
+    check_reconciliation.py is a good gate aimed at the wrong moment: it queries
+    the live API, so it can only ever tell you that the site is already wrong.
+    Nothing here can roll back a bad publish, so the only place a gate does any
+    good is in front of one. These are the breaks that are checkable without the
+    API — dangling references and missing provenance — and every one of them
+    would otherwise render as a page with a blank where a fact should be.
+    """
+    def load(stem):
+        return json.loads((SQLD / f"{stem}.json").read_text())
+
+    members = {r["bioguide"] for r in load("01_member.member")}
+    bills = {r["bill_key"] for r in load("03_bill.bill")}
+    rolls = {r["vote_key"] for r in load("05_rollcall.rollcall")}
+    trails = load("10_trail.money_trail")
+    timing = {(r["vote_key"], r["bioguide"], r["cycle"]) for r in load("11_timing.money_trail")}
+
+    bad = []
+
+    def check(name, offenders):
+        n = len(offenders)
+        log(f"   {'ok  ' if not n else 'FAIL'} {name}" + (f" — {n}, e.g. {offenders[:3]}" if n else ""))
+        if n:
+            bad.append(f"{name}: {n} (e.g. {offenders[:3]})")
+
+    check("every bill_sector row names a bill we loaded",
+          sorted({r["bill_key"] for r in load("04_bill_sector.bill_sector")} - bills))
+    check("every vote_position row names a roll call we loaded",
+          sorted({r["vote_key"] for r in load("07_position.vote_position")} - rolls))
+    check("every trail names a roll call we loaded",
+          sorted({t["vote_key"] for t in trails} - rolls))
+    check("every trail names a member we loaded",
+          sorted({t["bioguide"] for t in trails} - members))
+    check("every trail carries timing provenance",
+          sorted(str(k) for k in
+                 {(t["vote_key"], t["bioguide"], t["cycle"]) for t in trails} - timing))
+
+    # A roll call with no date breaks the timing block on every trail that cites
+    # it, and it is the exact defect the Senate fetcher shipped for months.
+    check("every roll call has an ISO date",
+          sorted(r["vote_key"] for r in load("05_rollcall.rollcall") if not r.get("iso_date")))
+
+    if bad:
+        raise RuntimeError("pre-publish invariants broken, nothing was published — "
+                           + "; ".join(bad))
+    log(f"   preflight ok: {len(bills)} bills, {len(rolls)} roll calls, {len(trails)} trails")
+
+
 def publish():
     """Replace every published table, parents first.
 
@@ -274,16 +324,26 @@ def main():
         run("FEC + legislators -> SQLite", "etl.py")
         run("roll calls", "fetch_votes.py")
         run("bills", "fetch_bills.py")
-        run("earmarks", "load_earmarks.py")
+        # sectors.py before load_earmarks.py, not after. load_earmarks reads
+        # bill_sector to decide which bills are too broad to score, and sectors.py
+        # DROPs and rebuilds bill_sector — so in the old order `is_broad` was
+        # always computed from the previous run's classification, and on a clean
+        # database it was computed from nothing at all.
         run("classification", "sectors.py")
+        run("earmarks", "load_earmarks.py")
         run("export", "export_json.py")
         run("timing provenance", "timing.py")
+        # Gate BEFORE the swap, against the SQLite build, not after it against
+        # the live API. The old order published first and checked second, while
+        # the comment here claimed a failure left the previous data up. It did
+        # not: by the time the check ran, the bad numbers were already the site.
+        preflight()
         counts = publish()
-        # An aggregation-invariant break means some page is now showing a number
-        # no other page agrees with. That is exactly the failure this project
-        # cannot ship, so it fails the run: the previous data stays published and
-        # the site footer says the refresh is stale.
-        run("aggregation invariants", "check_reconciliation.py")
+        # Second gate, now against what the API actually returns. This one cannot
+        # roll anything back — it catches a load that silently dropped rows, and
+        # a failure here marks the run failed so the footer stops claiming the
+        # data is fresh. Say plainly what it does and does not do.
+        run("aggregation invariants (post-publish)", "check_reconciliation.py")
         counts["seconds"] = round(time.time() - t0)
         rpc("run_finish", {"p_token": TOKEN, "p_id": run_id, "p_status": "ok",
                            "p_counts": counts, "p_note": "full rebuild from primary sources",

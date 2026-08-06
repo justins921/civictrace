@@ -209,6 +209,14 @@ details:not(.mnav-wrap)[open]>summary::before{content:"▾ "}
 .g4{grid-template-columns:repeat(auto-fill,minmax(min(210px,100%),1fr))}
 .srcgrid{grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr))}
 
+/* 1b. .g2 pairs a summary card with a data table. Two 320px tracks technically
+       fit at 1024px, but the table's columns get so narrow that every cell wraps
+       to three lines — the card doubles in height and its neighbour is stretched
+       to match, leaving ~370px of blank at 1024 and ~1000px at 768. Cards in a
+       row must be the same height (that was the ask), so the only honest fix is
+       to stop putting them in a row before the table starts wrapping. */
+@media(max-width:1100px){.g2{grid-template-columns:1fr}}
+
 /* 2. Wide data tables scroll inside their card rather than
       dragging the page with them. We scroll instead of hiding
       columns: this is a transparency site, so no data gets
