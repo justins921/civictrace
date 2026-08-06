@@ -69,18 +69,42 @@ export const isYes = (p?: string | null) => /^(Yea|Aye|Yes)$/i.test(p || '')
    industry's money sits mostly on one pole of its own axis. */
 export const LABELS = [
   'Crossed party, one-sided industry money',
+  'Crossed party, industry money present',
   'Contested vote, one-sided industry money',
   'Contested vote, industry money present',
   'Party-line vote — low signal',
   'Near-unanimous vote — no signal',
 ] as const
 
+/* Two labels, not one, for a member who broke from their own party.
+   "One-sided" is a claim about the industry's money, and it is only checkable
+   for the three sectors that have a declared two-sided axis. The engine used to
+   treat "we never looked" as "one-sided", which meant the strongest badge on
+   the site asserted something the record did not support. Where the axis is
+   unavailable or inconclusive, the party divergence is still a real and
+   documented fact, so it gets its own label rather than being quietly demoted
+   to the same bucket as a member who voted with their party. */
+export const NO_SIGNAL_LABELS: readonly string[] = [LABELS[4], LABELS[5]]
+
 export function labelClass(label: string) {
-  if (label.startsWith('Crossed party')) return { badge: 'b-note', verdict: 'v-note', angle: 62 }
+  if (label.startsWith('Crossed party, one-sided')) return { badge: 'b-note', verdict: 'v-note', angle: 62 }
+  if (label.startsWith('Crossed party')) return { badge: 'b-note', verdict: 'v-note', angle: 48 }
   if (label.startsWith('Contested vote, one-sided')) return { badge: 'b-note', verdict: 'v-note', angle: 40 }
   if (label.startsWith('Contested vote')) return { badge: 'b-some', verdict: 'v-some', angle: 20 }
   if (label.startsWith('Party-line')) return { badge: 'b-low', verdict: 'v-low', angle: -30 }
   return { badge: 'b-low', verdict: 'v-none', angle: -66 }
+}
+
+/* The site's headline honesty statistic, defined once.
+ *
+ * It was previously written out by hand in three places and disagreed in all
+ * three: /trails summed the wrong two labels and printed 61%, a member page
+ * hardcoded 87%, and the true figure was 89%. A number this project quotes as
+ * the point of the whole exercise cannot be a literal typed into JSX. */
+export function noSignalShare(counts: Record<string, number>, total: number): number {
+  if (!total) return 0
+  const n = NO_SIGNAL_LABELS.reduce((a, l) => a + (counts[l] || 0), 0)
+  return Math.round((100 * n) / total)
 }
 
 export const trailHref = (t: { vote_key: string; bioguide: string }) =>
@@ -144,6 +168,55 @@ export const ENTITY_LABEL: Record<string, string> = {
 
    `count: 'exact', head: true` asks Postgres for the number and transfers no
    rows at all. It is both correct and cheaper than what it replaces. */
+
+/* Three ways to read a table, and no fourth.
+ *
+ * This defect has now been found seven times across four outside reviews, in
+ * seven different files, by four different people, and every instance was
+ * written by someone who knew about the previous six. Documentation has failed.
+ * So the rule is enforced by a script instead: `npm run check:bounds` walks the
+ * TypeScript AST and fails on any `db.from(...)` chain that does not carry an
+ * explicit bound — a count, a `.limit()`, or a `.range()`. It runs in CI before
+ * the build, so an unbounded read cannot reach a deploy.
+ *
+ * Use `countRows` when you want a number, `fetchAll` when you want every row
+ * and the table may exceed a page, and an explicit `.limit(n)` when you want
+ * the top n and n is the point. */
+
+/** Exact row count. Transfers no rows at all — this is cheaper than the
+ *  `.select()` it replaces, as well as being correct past 1000 rows. */
+export async function countRows(
+  table: string,
+  filter: (q: any) => any = (q) => q,
+): Promise<number> {
+  const { count, error } = await filter(
+    db.from(table).select('*', { count: 'exact', head: true }))
+  if (error) throw new Error(`countRows(${table}): ${error.message}`)
+  return count || 0
+}
+
+/** Every matching row, paged past PostgREST's 1000-row ceiling.
+ *
+ *  Throws rather than truncating if the table is larger than `max`. A silent
+ *  cap is the thing this function exists to prevent, so it does not get to
+ *  reintroduce one at a higher number. */
+export async function fetchAll<T = any>(
+  table: string,
+  filter: (q: any) => any = (q) => q,
+  opts: { columns?: string; pageSize?: number; max?: number } = {},
+): Promise<T[]> {
+  const { columns = '*', pageSize = 1000, max = 50_000 } = opts
+  const out: T[] = []
+  for (let from = 0; from < max; from += pageSize) {
+    const { data, error } = await filter(
+      db.from(table).select(columns)).range(from, from + pageSize - 1)
+    if (error) throw new Error(`fetchAll(${table}): ${error.message}`)
+    const rows = (data || []) as T[]
+    out.push(...rows)
+    if (rows.length < pageSize) return out
+  }
+  throw new Error(`fetchAll(${table}): more than ${max} rows — raise max deliberately`)
+}
 
 export type LabelCounts = {
   counts: Record<string, number>

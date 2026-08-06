@@ -40,7 +40,8 @@ const KIND_NOTE: Record<string, string> = {
 export async function generateStaticParams() {
   // The bill-attached votes already have bill pages; prerender the rest, which
   // are the ones that previously had nowhere to go.
-  const { data } = await db.from('rollcall').select('vote_key,legis_num').limit(1000)
+  const { data } = await db.from('rollcall').select('vote_key,legis_num')
+    .order('vote_key', { ascending: false }).limit(1000)
   return (data || [])
     .filter((r: any) => KIND(r.legis_num) !== 'bill')
     .slice(0, 200)
@@ -65,9 +66,13 @@ export default async function Vote({ params }: { params: Promise<{ key: string }
   const [{ data: rcRows, error: rcErr }, { data: breakdown }, { data: positions }, { data: members }] =
     await Promise.all([
       db.from('rollcall').select('*').eq('vote_key', key).limit(1),
-      db.from('rollcall_breakdown').select('*').eq('vote_key', key),
-      db.from('vote_position').select('*').eq('vote_key', key),
-      db.from('member').select('bioguide,full_name,slug,party,chamber,district'),
+      // bounds-ok: one row per (party, position) on a single roll call.
+      db.from('rollcall_breakdown').select('*').eq('vote_key', key).limit(100),
+      // bounds-ok: one row per member voting — 535 at the outside, and the
+      // Wisconsin ten are filtered out of it below, never counted from it.
+      db.from('vote_position').select('*').eq('vote_key', key).limit(1000),
+      // bounds-ok: Wisconsin's delegation is ten members.
+      db.from('member').select('bioguide,full_name,slug,party,chamber,district').limit(50),
     ])
   if (rcErr) throw new Error(`roll call query failed: ${rcErr.message}`)
   const rc = (rcRows || [])[0]
@@ -89,12 +94,22 @@ export default async function Vote({ params }: { params: Promise<{ key: string }
   const cast = (Number(rc.yea) || 0) + (Number(rc.nay) || 0)
   const minority = cast ? Math.round((1000 * Math.min(rc.yea || 0, rc.nay || 0)) / cast) / 10 : 0
 
-  // Only look for a bill when the label actually is one.
-  const norm = (v: string) => (v || '').replace(/[^a-z0-9]/gi, '').toUpperCase()
-  const { data: bills } = kind === 'bill'
+  /* H2. This used to pull the bill table and `.find()` through it in
+     JavaScript. PostgREST returned 1,000 of 2,419 rows, so any bill sorting
+     past the cap was simply not found: thirteen vote pages printed "Its own
+     page carries the CRS summary and any money trails" and then rendered no
+     link to it. The note asserted the page existed and the page did not
+     appear, which reads as a broken site rather than a missing row.
+
+     A bill key is `{congress}{type}{num}`, so the lookup is one row by primary
+     key. Nothing is scanned and nothing can be capped. */
+  const billKey = kind === 'bill'
+    ? `${rc.congress}${String(rc.legis_num || '').replace(/[^a-z0-9]/gi, '').toLowerCase()}`
+    : null
+  const { data: bill } = billKey
     ? await db.from('bill').select('bill_key,title,bill_type,bill_num,policy_area')
-    : { data: [] as any[] }
-  const bill = (bills || []).find((b: any) => norm(b.bill_type + b.bill_num) === norm(rc.legis_num))
+        .eq('bill_key', billKey).maybeSingle()
+    : { data: null as any }
 
   return (
     <>
@@ -119,7 +134,12 @@ export default async function Vote({ params }: { params: Promise<{ key: string }
 
       <div className="wrap">
         <div className="note" style={{ marginTop: 18 }}>
-          <strong>What kind of vote this is.</strong> {KIND_NOTE[kind]}
+          <strong>What kind of vote this is.</strong>{' '}
+          {kind === 'bill' && !bill
+            ? `This vote is on a bill, but ${rc.legis_num} is not in our bill record, so there is `
+              + `no page for it here and no money trail. That is a gap in what we have loaded, not `
+              + `a statement about the bill.`
+            : KIND_NOTE[kind]}
           {bill && <> <Link href={hrefFor.bill(bill.bill_key)}>Open the bill page →</Link></>}
         </div>
 

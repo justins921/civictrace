@@ -13,7 +13,9 @@ const CAT_ORDER = ['Contribution data', 'Vote data', 'Timing', 'Methodology', 'W
 
 export default async function Corrections() {
   const [{ data: rows }, { data: stats }] = await Promise.all([
-    db.from('correction_log').select('*'),
+    // bounds-ok: the corrections log is written by hand, one row per published
+    // correction. If this ever approaches a thousand the site has bigger news.
+    db.from('correction_log').select('*').limit(1000),
     db.from('report_stats').select('*').single(),
   ])
   const list = rows || []
@@ -55,11 +57,11 @@ export default async function Corrections() {
       </div>
 
       <div className="note" style={{ marginTop: 16 }}>
-        <strong>Why we publish the ones nobody would have caught.</strong> Two of the entries below
-        are bugs we found in our own review before launch — a vote-counting error and a
-        campaign-finance figure compared against the wrong side of the ledger. We could have fixed
-        both silently and no reader would have known. A corrections log that only contains
-        complaints from other people is not a corrections log; it is a complaints inbox.
+        <strong>Why we publish the ones nobody would have caught.</strong>{' '}
+        {internal > 0 && <>{internal} of the {list.length} entries below are bugs we found in our
+        own review — errors nobody had reported and nobody would have noticed. We could have fixed
+        every one of them silently. </>}A corrections log that only contains complaints from other
+        people is not a corrections log; it is a complaints inbox.
       </div>
 
       <h2 className="section">The log</h2>

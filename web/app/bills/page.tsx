@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { db, hrefFor } from '@/lib/db'
+import { db, fetchAll, countRows, hrefFor } from '@/lib/db'
 import { BillArt } from '@/components/Art'
 
 export const metadata = {
@@ -16,17 +16,20 @@ export default async function Bills() {
   // unbounded select at 1000 rows regardless of what you ask for, so the
   // "signed but never voted" figure was derived from 1,000 of 2,419 bills and
   // printed 791 instead of the truth. Never .length a response you did not bound.
-  const [{ data: bills }, { count: signedOnlyCount }, { data: links }, { data: rcs }] =
-    await Promise.all([
-    db.from('bill_profile').select('*').eq('has_rollcall', true),
-    db.from('bill_profile').select('bill_key', { count: 'exact', head: true })
-      .eq('has_rollcall', false).gt('wi_sponsors', 0),
-    db.from('bill_sector').select('bill_key,sector,evidence'),
-    db.from('rollcall').select('vote_key,legis_num,iso_date,vote_result,yea,nay,chamber'),
+  const [bills, signedOnlyCount, links, rcs] = await Promise.all([
+    fetchAll<any>('bill_profile', (q) => q.eq('has_rollcall', true).order('bill_key')),
+    countRows('bill_profile', (q) => q.eq('has_rollcall', false).gt('wi_sponsors', 0)),
+    fetchAll<any>('bill_sector', (q) => q.order('bill_key'),
+      { columns: 'bill_key,sector,evidence' }),
+    // 505 roll calls today and rising every week Congress sits. This is the
+    // read that would have crossed the ceiling next, and the four figures in
+    // the paragraph below it are all derived from `.length`.
+    fetchAll<any>('rollcall', (q) => q.order('vote_key'),
+      { columns: 'vote_key,legis_num,iso_date,vote_result,yea,nay,chamber' }),
   ])
 
   const sectorsFor: Record<string, string[]> = {}
-  for (const l of links || []) (sectorsFor[l.bill_key] ||= []).push(l.sector)
+  for (const l of links) (sectorsFor[l.bill_key] ||= []).push(l.sector)
 
   // The bill table now holds every bill a Wisconsin member sponsored or
   // cosponsored — 2,419 of them — not only the 209 that reached a vote. This
@@ -35,7 +38,7 @@ export default async function Bills() {
   // this project keeps catching in itself.
   const signedOnly = signedOnlyCount || 0
 
-  const list = (bills || []).slice().sort((a: any, b: any) => {
+  const list = bills.slice().sort((a: any, b: any) => {
     const t = Number(b.trail_count || 0) - Number(a.trail_count || 0)
     if (t) return t
     return String(a.bill_type + a.bill_num).localeCompare(String(b.bill_type + b.bill_num))
@@ -58,7 +61,7 @@ export default async function Bills() {
   // anyone who tried. Split them, and say what the remainder is.
   const norm = (v: string) => (v || '').replace(/[^a-z0-9]/gi, '').toUpperCase()
   const billLabels = new Set(list.map((b: any) => norm(b.bill_type + b.bill_num)))
-  const allRolls = rcs || []
+  const allRolls = rcs
   const billVotes = allRolls.filter((r: any) => billLabels.has(norm(r.legis_num)))
   const otherVotes = allRolls.length - billVotes.length
   const nominations = allRolls.filter((r: any) =>

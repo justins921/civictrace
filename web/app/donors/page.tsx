@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { db, money, hrefFor, CYCLE, CYCLE_LABEL } from '@/lib/db'
+import { db, money, hrefFor, fetchAll, countRows, CYCLE, CYCLE_LABEL } from '@/lib/db'
 import { DonorArt } from '@/components/Art'
 
 export const metadata = {
@@ -8,7 +8,10 @@ export const metadata = {
 
 }
 
-export const revalidate = 3600
+/* No `revalidate` here on purpose. This route reads `searchParams`, which makes
+   it dynamically rendered on every request — there is no static output for a
+   revalidation window to apply to, and the export that used to sit here read as
+   though the page were cached for an hour when nothing about it ever was. */
 
 const PAGE = 100
 
@@ -29,12 +32,40 @@ export default async function Donors({ searchParams }:
        .order('cmte_id', { ascending: true })   // deterministic tie-break (M-05)
        .range((page - 1) * PAGE, page * PAGE - 1)
 
-  const [{ data: rows, count }, { data: sectors }, { data: recon }] = await Promise.all([
-    q,
-    db.from('sector_profile').select('*').eq('cycle', CYCLE).gt('total_to_wi', 0)
-      .order('total_to_wi', { ascending: false }),
-    db.from('reconciliation').select('*').single(),
-  ])
+  const filtered = Boolean(sp.sector || sp.side)
+
+  /* H12. `filteredTotal` used to be read off the sector row — the whole
+     sector's money — while the list beside it was also filtered by interest
+     side. /donors?sector=energy&side=carbon-intensive%20energy therefore
+     printed the entire energy total against a carbon-only list, overstating by
+     up to 86%. The filter has two dimensions, so the total has to be computed
+     over both of them; there is no pre-aggregated row for that combination and
+     inventing one from the closest available row is exactly the mistake.
+
+     Summed over the actual filtered set, paged rather than capped. The widest
+     filter here is a few hundred committees. */
+  const applyFilter = (qy: any) => {
+    let x = qy.eq('cycle', CYCLE).gt('payments_to_wi', 0)
+    if (sp.sector) x = x.eq('sector_slug', sp.sector)
+    if (sp.side) x = x.eq('interest_side', sp.side)
+    return x
+  }
+
+  const [{ data: rows, count }, { data: sectors }, { data: recon }, allCount, filteredRows] =
+    await Promise.all([
+      q,
+      // bounds-ok: sector_profile is one row per sector per cycle — the sector
+      // vocabulary is a fixed list of about 25 names written by sectors.py.
+      db.from('sector_profile').select('*').eq('cycle', CYCLE).gt('total_to_wi', 0)
+        .order('total_to_wi', { ascending: false }).limit(500),
+      db.from('reconciliation').select('*').single(),
+      countRows('committee_profile', (qy: any) =>
+        qy.eq('cycle', CYCLE).gt('payments_to_wi', 0)),
+      filtered
+        ? fetchAll<any>('committee_profile',
+            (qy: any) => applyFilter(qy).order('cmte_id'), { columns: 'total_to_wi' })
+        : Promise.resolve(null),
+    ])
 
   const list = rows || []
   const total = count || 0
@@ -46,9 +77,8 @@ export default async function Donors({ searchParams }:
   // — the same shape as the cross-cycle bug this page was rebuilt to fix.
   const cycleTotal = (sectors || []).reduce((a: number, s: any) => a + Number(s.total_to_wi), 0)
   const activeSectorRow = (sectors || []).find((s: any) => s.sector_slug === sp.sector)
-  const filtered = Boolean(sp.sector || sp.side)
-  const filteredTotal = sp.sector && activeSectorRow
-    ? Number(activeSectorRow.total_to_wi)
+  const filteredTotal = filteredRows
+    ? filteredRows.reduce((a: number, r: any) => a + Number(r.total_to_wi || 0), 0)
     : null
   const activeSector = activeSectorRow
 
@@ -69,9 +99,14 @@ export default async function Donors({ searchParams }:
           <>
             <strong>{total.toLocaleString()}</strong> committees match this filter
             {filteredTotal !== null && <>, giving <strong>{money(filteredTotal)}</strong></>}{' '}
-            in the <strong>{CYCLE_LABEL}</strong>. Across every industry it is{' '}
+            in the <strong>{CYCLE_LABEL}</strong>
+            {sp.sector && sp.side && activeSectorRow && (
+              <> — that is the {sp.side} pole only, out of{' '}
+              <strong>{money(activeSectorRow.total_to_wi)}</strong> across all of{' '}
+              {activeSectorRow.sector}</>
+            )}. Across every industry it is{' '}
             <Link href="/donors">
-              {recon ? Number(recon.committees_listed).toLocaleString() : 'all'} committees
+              {allCount.toLocaleString()} committees
             </Link>{' '}and <strong>{money(cycleTotal)}</strong>. Each name opens that
             committee&apos;s own page: who it gave to, when, and a link to the filed FEC document
             for every payment.
@@ -102,10 +137,11 @@ export default async function Donors({ searchParams }:
         <strong>So why only committees?</strong> Because &ldquo;we may&rdquo; is not &ldquo;we
         should&rdquo;. A searchable index of private citizens by name, home address, employer and
         political giving is a different product from a record of organised money, and it is the
-        one that gets misused. We expect to publish individual giving in aggregate — by employer
-        and occupation — rather than as lookup-by-name records. A committee&apos;s sector label is
-        assigned by a published rule, and the rule ID is printed on every row so you can check
-        our work.
+        one that gets misused. Individual giving <em>is</em> published, in aggregate — by size
+        band, occupation, employer above a three-donor floor, and in-state share — on each{' '}
+        <Link href="/delegation">member&apos;s own page</Link>. What is not published, and will not
+        be, is a lookup-by-name record. A committee&apos;s sector label is assigned by a published
+        rule, and the rule ID is printed on every row so you can check our work.
       </div>
 
       {recon && Number(recon.committees_net_refunded) > 0 && (
@@ -139,9 +175,14 @@ export default async function Donors({ searchParams }:
         {activeSector ? `${activeSector.sector} committees` : 'Every contributing committee'}
       </h2>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '0 0 14px' }}>
-        <Link className={`badge ${sp.sector || sp.side ? 'b-low' : 'b-some'}`} href="/donors">
-          All {total.toLocaleString()}
+        <Link className={`badge ${filtered ? 'b-low' : 'b-some'}`} href="/donors">
+          All {allCount.toLocaleString()}
         </Link>
+        {sp.side && (
+          <Link className="badge b-some" href={qs({ side: undefined, p: undefined })}>
+            {sp.side} ✕
+          </Link>
+        )}
         {(sectors || []).slice(0, 10).map((s: any) => (
           <Link key={s.sector_slug} className={`badge ${sp.sector === s.sector_slug ? 'b-some' : 'b-low'}`}
             href={qs({ sector: s.sector_slug, p: undefined })}>{s.sector}</Link>

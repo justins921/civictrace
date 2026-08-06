@@ -1,14 +1,33 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { db, money, partyLetter, officeLine, labelClass, trailHref, hrefFor, sectorSlug , CYCLE, CYCLE_LABEL } from '@/lib/db'
+import { db, money, partyLetter, officeLine, labelClass, trailHref, hrefFor, sectorSlug, fetchAll, CYCLE, CYCLE_LABEL, SITE_URL } from '@/lib/db'
 import { DonorArt } from '@/components/Art'
 
 export const revalidate = 3600
 
 export async function generateStaticParams() {
+  // bounds-ok: one row per sector per cycle; the vocabulary is ~25 names.
   const { data } = await db.from('sector_profile').select('sector_slug')
-    .eq('cycle', CYCLE).gt('total_to_wi', 0)
+    .eq('cycle', CYCLE).gt('total_to_wi', 0).limit(500)
   return (data || []).map((s: any) => ({ slug: s.sector_slug }))
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params
+  const { data: s } = await db.from('sector_profile')
+    .select('sector,committees,members_supported,total_to_wi')
+    .eq('sector_slug', slug).eq('cycle', CYCLE).maybeSingle()
+  if (!s) return { title: 'Industry — CivicTrace' }
+  const title = `${s.sector} — CivicTrace`
+  const description =
+    `${s.committees} ${s.sector} committees gave to ${s.members_supported} Wisconsin members of `
+    + `Congress in the ${CYCLE_LABEL}. Every committee, every recipient, and the published rule `
+    + `that put each one in this industry.`
+  return {
+    title, description,
+    alternates: { canonical: `${SITE_URL}/sector/${slug}` },
+    openGraph: { title, description, url: `${SITE_URL}/sector/${slug}` },
+  }
 }
 
 export default async function Sector({ params }: { params: Promise<{ slug: string }> }) {
@@ -18,13 +37,18 @@ export default async function Sector({ params }: { params: Promise<{ slug: strin
   if (!prof) notFound()
   const sector = prof.sector
 
-  const [{ data: cmtes }, { data: recips }, { data: bills }, { data: trailsRaw, count: trailCount, error: trailErr }] = await Promise.all([
+  const [{ data: cmtes }, { data: recips }, bills, { data: trailsRaw, count: trailCount, error: trailErr }] = await Promise.all([
     db.from('committee_profile').select('*').eq('sector', sector).eq('cycle', CYCLE)
       .gt('payments_to_wi', 0)
       .order('total_to_wi', { ascending: false }).order('cmte_id', { ascending: true }).limit(40),
+    // bounds-ok: at most one row per Wisconsin member.
     db.from('sector_members').select('*').eq('sector_slug', slug).eq('cycle', CYCLE)
-      .order('total', { ascending: false }).order('bioguide', { ascending: true }),
-    db.from('bill_sector').select('*, bill(*)').eq('sector', sector),
+      .order('total', { ascending: false }).order('bioguide', { ascending: true }).limit(100),
+    // Every bill matched to this sector. 228 rows across all sectors today, but
+    // it grows with the bill table and one sector could plausibly hold a page
+    // of them on its own, so it pages rather than assuming.
+    fetchAll<any>('bill_sector',
+      (q: any) => q.eq('sector', sector).order('bill_key'), { columns: '*, bill(*)' }),
     // Same fix as /committee: matched in the database over every trail, not
     // searched in JS inside an arbitrary 300-row window.
     db.from('trail_full').select('*', { count: 'exact' })

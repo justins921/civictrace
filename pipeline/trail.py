@@ -279,6 +279,61 @@ def build_trail(vote_key, bioguide, cand_id, cycle):
     }
 
 
+# How much of a sector's money has to sit on its declared axis before we are
+# willing to describe that money as one-sided. Below this, the poles are a
+# minority report about a majority we did not classify.
+AXIS_COVERAGE = 0.5
+
+
+def axis_verdict(m):
+    """Is "one-sided industry money" a claim this record supports?
+
+    C3, from the August 2026 outside review. The test used to be
+
+        lopsided = (a + b) == 0 or a >= 2 * b
+
+    which returns True in three quite different situations and only one of them
+    is a yes:
+
+      * the sector has no declared two-sided axis. `a` and `b` are both zero
+        because nothing was ever split, and "we never looked" came out of this
+        function as "one-sided".
+      * an axis exists, but the classifier placed most of the sector's money on
+        neither pole. The site's three highest-ranked trails were all of this
+        kind: the poles held between 13% and 40% of the money and the label
+        asserted one-sidedness about the whole of it.
+      * an axis exists, covers the money, and one pole is at least twice the
+        other. This is the only case the phrase describes.
+
+    `unaligned_dollars` has been computed and carried through this file the
+    whole time and nothing read it. Now something does.
+
+    Returns (one_sided, note_for_the_reader).
+    """
+    a = float(m.get("aligned_side_dollars") or 0.0)
+    b = float(m.get("opposed_side_dollars") or 0.0)
+    poled = a + b
+    sector = float(m.get("sector_dollars") or 0.0)
+
+    if not m.get("has_interest_axis"):
+        return False, (" This industry has no two-sided axis in our classifier, so we have not "
+                       "established which side of it this money came from — and we will not call "
+                       "money one-sided on the strength of never having checked.")
+
+    if sector <= 0 or (poled / sector) < AXIS_COVERAGE:
+        return False, (f" This industry has a declared axis, but only ${poled:,.0f} of the "
+                       f"${sector:,.0f} sits on either pole of it — the remaining "
+                       f"${sector - poled:,.0f} is from committees we could not place on one side. "
+                       f"That is too little to describe this money as one-sided.")
+
+    note = (f" Within this industry the money is split: {m.get('larger_pole') or 'one pole'} "
+            f"${a:,.0f} against {m.get('smaller_pole') or 'the other pole'} ${b:,.0f}.")
+    if a < 2 * b:
+        return False, note + (" Those are close enough that there is no single industry position "
+                              "here to line a vote up against.")
+    return True, note
+
+
 def alignment_label(t):
     """Deliberately conservative, and it reads the member's vote.
 
@@ -331,22 +386,24 @@ def alignment_label(t):
         f"The member voted {position}, with {party_share}% of their own party.")
 
     # Is there a coherent industry position to overlap with at all?
-    a, b = m["aligned_side_dollars"], m["opposed_side_dollars"]
-    lopsided = (a + b) == 0 or a >= 2 * b   # one pole at least 2:1, or no axis to split
-    axis_note = ""
-    if m.get("smaller_pole"):
-        axis_note = (f" Within this industry the money is split: {m['larger_pole']} "
-                     f"${a:,.0f} against {m['smaller_pole']} ${b:,.0f}.")
-        if not lopsided:
-            axis_note += (" Those are close enough that there is no single industry position "
-                          "here to line a vote up against.")
+    one_sided, axis_note = axis_verdict(m)
 
-    if share >= 10 and crossed and lopsided:
+    # Party divergence and one-sidedness are two separate findings and they are
+    # now labelled separately. Collapsing them meant a member who broke from
+    # their party in an industry with no declared axis got the same badge as a
+    # member who voted with their party — the strongest fact on the page thrown
+    # away because a second, unrelated fact was unavailable.
+    if share >= 10 and crossed and one_sided:
         return ("Crossed party, one-sided industry money",
                 f"The bill's sector supplied {share}% of this member's PAC money. "
                 f"{minority_note}{axis_note} Worth reading the underlying filings.")
 
-    if share >= 10 and lopsided:
+    if share >= 10 and crossed:
+        return ("Crossed party, industry money present",
+                f"The bill's sector supplied {share}% of this member's PAC money. "
+                f"{minority_note}{axis_note} Worth reading the underlying filings.")
+
+    if share >= 10 and one_sided:
         return ("Contested vote, one-sided industry money",
                 f"The bill's sector supplied {share}% of this member's PAC money, and the vote "
                 f"split the member's party. {minority_note}{axis_note}")

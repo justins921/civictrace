@@ -10,9 +10,12 @@ export const revalidate = 3600
 
 export default async function Earmarks() {
   const [{ data: ears }, { data: agg }, { data: members }] = await Promise.all([
-    db.from('earmark').select('*').eq('state', 'WI').order('amount', { ascending: false }),
-    db.from('earmark_agg').select('*'),
-    db.from('member').select('*').eq('chamber', 'rep').order('district'),
+    // bounds-ok: House rules cap earmark requests at 15 per member per year,
+    // and Wisconsin has eight House members. earmark_agg is pre-aggregated.
+    db.from('earmark').select('*').eq('state', 'WI')
+      .order('amount', { ascending: false }).limit(1000),
+    db.from('earmark_agg').select('*').limit(200),
+    db.from('member').select('*').eq('chamber', 'rep').order('district').limit(50),
   ])
 
   const nat = (agg || []).find((a: any) => a.scope === 'national')

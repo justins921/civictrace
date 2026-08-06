@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { db, money, partyLetter, labelClass, trailHref, LABELS, isYes, hrefFor, labelCounts, CYCLE } from '@/lib/db'
+import { db, money, partyLetter, labelClass, trailHref, LABELS, isYes, hrefFor, labelCounts, noSignalShare, CYCLE } from '@/lib/db'
 import { Gauge } from '@/components/Gauge'
 
 export const metadata = {
@@ -9,7 +9,10 @@ export const metadata = {
 
 const PER_PAGE = 60
 
-export const revalidate = 3600
+/* No `revalidate` here on purpose. This route reads `searchParams`, which makes
+   it dynamically rendered on every request — there is no static output for a
+   revalidation window to apply to, and the export that used to sit here read as
+   though the page were cached for an hour when nothing about it ever was. */
 
 const pc = (n: number, d: number) => (d ? `${Math.round((100 * n) / d)}%` : '—')
 
@@ -31,8 +34,10 @@ export default async function Trails({ searchParams }:
     await Promise.all([
     qy,
     labelCounts(),   // shared with the home page — see lib/db.ts
-    db.from('label_symmetry').select('*'),
-    db.from('member').select('slug,full_name,party').order('full_name'),
+    // bounds-ok: one row per (label, party) — at most a dozen.
+    db.from('label_symmetry').select('*').limit(100),
+    // bounds-ok: Wisconsin's delegation is ten members.
+    db.from('member').select('slug,full_name,party').order('full_name').limit(50),
   ])
 
 
@@ -50,6 +55,16 @@ export default async function Trails({ searchParams }:
 
   const { counts, total, partitions: labelsPartition } = labels
   const labelled = Object.values(counts).reduce((a, n) => a + n, 0)
+
+  // C1. This headline figure was computed on LABELS[2] + LABELS[3] and printed
+  // 61%. LABELS[2] is "Contested vote, industry money present" — a contested
+  // vote with industry money on it is precisely the case that *does* carry
+  // signal, and counting it as noise understated the site's own honesty
+  // statistic by 28 points. The two no-signal states are the last two:
+  // party-line, and near-unanimous. It is defined here, once, and both this
+  // page and every member page read it, because the same number was previously
+  // being written out by hand in three places and disagreed in all three.
+  const noSignalPct = noSignalShare(counts, total)
 
   const byParty: Record<string, number> = {}
   for (const s of sym || []) byParty[s.party] = (byParty[s.party] || 0) + Number(s.n)
@@ -74,8 +89,7 @@ export default async function Trails({ searchParams }:
           <div style={{ flex: 1, minWidth: 260 }}>
             <div className="eyebrow">What the engine actually concluded</div>
             <div className="verdict v-none" style={{ fontSize: 19 }}>
-              {Math.round((100 * ((counts[LABELS[2]] || 0) + (counts[LABELS[3]] || 0))) / (total || 1))}%
-              {' '}of overlaps carry no usable signal
+              {noSignalPct}% of overlaps carry no usable signal
             </div>
             <div className="small">
               Read that number carefully, because it is the whole point. Most of the time, money and

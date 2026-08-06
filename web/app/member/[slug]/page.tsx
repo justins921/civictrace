@@ -1,13 +1,33 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { db, money, partyLetter, officeLine, labelClass, trailHref, isYes, hrefFor, CYCLE, CYCLE_LABEL } from '@/lib/db'
+import { db, money, partyLetter, officeLine, labelClass, trailHref, isYes, hrefFor, safeUrl, CYCLE, CYCLE_LABEL, labelCounts, noSignalShare, countRows, SITE_URL } from '@/lib/db'
 import { CapitolArt } from '@/components/Art'
 
 export const revalidate = 3600
 
 export async function generateStaticParams() {
-  const { data } = await db.from('member').select('slug')
+  // bounds-ok: Wisconsin's federal delegation is ten people; a fifty-row cap on
+  // a body fixed by the Constitution at 8 House seats and 2 Senate seats is not
+  // a truncation risk. It is still written down rather than left unbounded.
+  const { data } = await db.from('member').select('slug').limit(50)
   return (data || []).map((m: any) => ({ slug: m.slug }))
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params
+  const { data: m } = await db.from('member').select('full_name,chamber,district,party')
+    .eq('slug', slug).maybeSingle()
+  if (!m) return { title: 'Member — CivicTrace' }
+  const title = `${m.full_name} — CivicTrace`
+  const description =
+    `Campaign money, recorded votes, cosponsorships, earmark requests and independent ` +
+    `spending for ${m.full_name} (${m.party}, ${officeLine(m)}), every figure linked to the ` +
+    `government filing it came from.`
+  return {
+    title, description,
+    alternates: { canonical: `${SITE_URL}/member/${slug}` },
+    openGraph: { title, description, url: `${SITE_URL}/member/${slug}` },
+  }
 }
 
 export default async function Member({ params }: { params: Promise<{ slug: string }> }) {
@@ -17,46 +37,67 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
 
   const [{ data: sectors }, { data: cmtes }, { data: trails }, { data: votes }, { data: ears },
          { data: totalsRows }, { data: ieRows }, { data: assigns },
-         { data: sponsored, error: sponsorErr }, { data: indivRows }] =
+         { data: sponsored, error: sponsorErr }, { data: indivRows }, labels, cosponsorCount] =
     await Promise.all([
-      db.from('member_sector_money').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE),
+      // bounds-ok: one row per sector this member took money from — the sector
+      // vocabulary is a fixed list of ~25 names written by sectors.py.
+      db.from('member_sector_money').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE)
+        .limit(200),
       db.from('member_top_committee').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE)
         .order('total', { ascending: false }).limit(25),
       db.from('trail_full').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE)
         .order('rank').limit(12),
-      // Ordered in the database, not in the browser. "The 15 most recent votes"
-      // was previously computed by pulling an unordered page of 400 and sorting
-      // what came back — correct only for as long as no member exceeded 400 roll
-      // calls. The House went from 140 to 283 in one refresh; the next time that
-      // cap is crossed the page would have shown 15 arbitrary votes and called
-      // them recent, with nothing to notice it by.
-      db.from('vote_position').select('*, rollcall!inner(*)').eq('bioguide', m.bioguide)
-        // NB: PostgREST's server max-rows caps this at 1000 whatever we ask
-        // for, so the limit is a ceiling we do not control. What the ordering
-        // buys is that the 1000 we get are the newest 1000, so "recent" stays
-        // true even when the cap bites. Max today is 283 per member.
-        .order('iso_date', { referencedTable: 'rollcall', ascending: false }).limit(1000),
-      db.from('earmark').select('*').eq('bioguide', m.bioguide).order('amount', { ascending: false }),
+      /* The 15 most recent votes, ordered by the database.
+    
+         `.order(col, { referencedTable })` sorts rows *inside* an embedded
+         resource — it does nothing to the order of the parent rows, so ordering
+         `vote_position` by `rollcall.iso_date` sorted a one-element embed 283
+         times and returned the parent rows in whatever order PostgREST felt
+         like. The comment that used to sit here claimed the opposite, which is
+         worse than no comment: it told the next reader the cap was safe.
+    
+         Query the other way round. `rollcall` is the parent, so its own
+         `iso_date` is a top-level column and `order` means what it says; the
+         inner join to vote_position filters to this member's votes. */
+      db.from('rollcall').select('*, vote_position!inner(*)')
+        .eq('vote_position.bioguide', m.bioguide)
+        .order('iso_date', { ascending: false }).order('vote_key', { ascending: false })
+        .limit(15),
+      // bounds-ok: House rules cap earmark requests at 15 per member per year.
+      db.from('earmark').select('*').eq('bioguide', m.bioguide)
+        .order('amount', { ascending: false }).limit(200),
       // Context, never arithmetic. `candidate_totals` is the denominator this
       // page was missing: PAC money is 64% of Gwen Moore's receipts and 4.5% of
       // Tammy Baldwin's, and printing both the same way implied the trail below
       // means the same thing for both members. It does not.
-      db.from('candidate_totals').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE),
-      db.from('ie_agg').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE),
+      // bounds-ok: one row per candidate committee this member has — at most a
+      // handful, and every one of them is summed below rather than sampled.
+      db.from('candidate_totals').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE).limit(50),
+      // bounds-ok: ie_agg is one pre-aggregated row per member per cycle.
+      db.from('ie_agg').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE).limit(10),
+      // bounds-ok: no member sits on more than a dozen committees.
       db.from('committee_assignment').select('*').eq('bioguide', m.bioguide)
-        .not('jurisdiction_sectors', 'is', null),
+        .not('jurisdiction_sectors', 'is', null).limit(100),
+      // The table below shows 25. This asks for 26 so "showing 25 of N" can be
+      // written honestly without pulling 2,254 rows to count them — the exact
+      // N comes from countRows, running beside this.
       db.from('bill_sponsor').select('*, bill(bill_key,title,bill_type,bill_num,policy_area)')
-        .eq('bioguide', m.bioguide).order('sponsored_date', { ascending: false }),
+        .eq('bioguide', m.bioguide).order('sponsored_date', { ascending: false }).limit(26),
+      // bounds-ok: individual_agg holds a bounded set of dimension rows per
+      // member — one 'all', ~6 size bands, 50-odd states, and the occupation
+      // and employer buckets that survived the three-donor floor.
       db.from('individual_agg').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE)
-        .order('total', { ascending: false }),
+        .order('total', { ascending: false }).limit(1000),
+      labelCounts(),
+      countRows('bill_sponsor', (q: any) => q.eq('bioguide', m.bioguide)),
     ])
 
   const secs = (sectors || []).slice().sort((a: any, b: any) => Number(b.total) - Number(a.total))
   const total = secs.reduce((a: number, s: any) => a + Number(s.total), 0)
-  const recent = (votes || [])
-    .filter((v: any) => v.rollcall?.iso_date)
-    .sort((a: any, b: any) => (b.rollcall.iso_date > a.rollcall.iso_date ? 1 : -1))
-    .slice(0, 15)
+  // Already the fifteen newest, ordered and limited by Postgres. The embed is
+  // this member's single position on each of them.
+  const recent = (votes || []).map((r: any) => ({ ...r, pos: (r.vote_position || [])[0] }))
+    .filter((r: any) => r.pos)
   const earTotal = (ears || []).reduce((a: number, e: any) => a + Number(e.amount), 0)
 
   // Sum across committees: a member can have more than one candidate ID.
@@ -75,6 +116,18 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
   // rejected. Errors are not empty results.
   if (sponsorErr) throw new Error(`sponsorship query failed: ${sponsorErr.message}`)
   const cosponsored = (sponsored || []).filter((r: any) => r.bill)
+
+  // C5. This card printed the number of rows the query returned and called it
+  // the number of committees that gave to this member. The query asks for the
+  // top 25. Bryan Steil's page therefore said 25 against a real 346 — an
+  // eleven-fold understatement of the thing the page exists to show, produced
+  // by counting a page size. The count is a sum of per-sector distinct
+  // committees, which is already in the response beside it.
+  const committeeCount = secs.reduce((a: number, s: any) => a + Number(s.committees || 0), 0)
+
+  // The 87% in the cosponsorship lede was a literal, typed once and never
+  // recomputed, against a real 89% that moves every refresh.
+  const noSignalPct = noSignalShare(labels.counts, labels.total)
 
   const indiv_ = (indivRows || [])
   const pick = (dim: string) => indiv_.filter((r: any) => r.dimension === dim)
@@ -98,7 +151,7 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
             {officeLine(m)} · {m.party} · term {m.term_start} to {m.term_end}
           </div>
           <div className="link-list" style={{ marginTop: 12, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-            {m.official_url && <a href={m.official_url} target="_blank" rel="noopener noreferrer">Official site ↗</a>}
+            {safeUrl(m.official_url) && <a href={safeUrl(m.official_url)!} target="_blank" rel="noopener noreferrer">Official site ↗</a>}
             <a href={`https://www.congress.gov/member/${m.bioguide}`} target="_blank" rel="noopener noreferrer">Congress.gov ↗</a>
             {m.fec_cand_id && <a href={`https://www.fec.gov/data/candidate/${m.fec_cand_id}/`}
               target="_blank" rel="noopener noreferrer">FEC record ↗</a>}
@@ -107,7 +160,7 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
         <div style={{ flex: 'none' }}>
           <div className="eyebrow">PAC money, {CYCLE_LABEL}</div>
           <div className="kpi mono">{money(total)}</div>
-          <div className="small">{(cmtes || []).length}+ committees · giver-side ledger</div>
+          <div className="small">{committeeCount.toLocaleString()} committees · giver-side ledger</div>
         </div>
       </div>
 
@@ -135,7 +188,7 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
             small slice of the money they raised, so the absence of an overlap here is not
             evidence that none exists.</>
           )}
-          {fecUrl && <> <a href={fecUrl} target="_blank" rel="noopener noreferrer">Check the FEC&apos;s
+          {safeUrl(fecUrl) && <> <a href={safeUrl(fecUrl)!} target="_blank" rel="noopener noreferrer">Check the FEC&apos;s
             own totals ↗</a></>}
         </div>
       )}
@@ -206,10 +259,10 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
               ))}
             </tbody>
           </table>
-          {(cmtes || []).length > 8 && (
+          {committeeCount > 8 && (
             <div className="tiny card-foot">
-              Showing the 8 largest of <strong>{(cmtes || []).length}</strong> committees that gave
-              to this member in the {CYCLE_LABEL}. Every one of them is listed on{' '}
+              Showing the 8 largest of <strong>{committeeCount.toLocaleString()}</strong> committees
+              that gave to this member in the {CYCLE_LABEL}. Every one of them is listed on{' '}
               <Link href="/donors">the donors page</Link>.
             </div>
           )}
@@ -237,8 +290,8 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
                 ))}
               </tbody>
             </table>
-            {(ears || [])[0]?.member_url && (
-              <a className="btn" style={{ marginTop: 12 }} href={(ears || [])[0].member_url}
+            {safeUrl((ears || [])[0]?.member_url) && (
+              <a className="btn" style={{ marginTop: 12 }} href={safeUrl((ears || [])[0].member_url)!}
                 target="_blank" rel="noopener noreferrer">Member&apos;s own disclosure page ↗</a>
             )}
           </div>
@@ -303,11 +356,20 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
               <div className="eyebrow">By occupation as filed</div>
               <table style={{ marginTop: 8 }}>
                 <thead><tr><th>Occupation</th><th className="num">Donors</th>
-                  <th className="num">Total</th></tr></thead>
+                  <th className="num">Gifts</th><th className="num">Total</th></tr></thead>
                 <tbody>
                   {occupations.map((o: any) => (
                     <tr key={o.key}>
                       <td className="small clamp2">{o.key}</td>
+                      {/* This column was headed "Donors" and printed
+                          contributions. Twelve monthly gifts from one person
+                          are twelve contributions and one donor, and the two
+                          were being used interchangeably — including by the
+                          three-donor floor that is supposed to keep a single
+                          identifiable person at a named small employer from
+                          being published. Both numbers, both labelled. */}
+                      <td className="num mono">
+                        {o.donors == null ? '—' : Number(o.donors).toLocaleString()}</td>
                       <td className="num mono">{Number(o.donations).toLocaleString()}</td>
                       <td className="num mono">{money(o.total)}</td>
                     </tr>
@@ -325,16 +387,16 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
         </>
       )}
 
-      {cosponsored.length > 0 && (
+      {cosponsorCount > 0 && (
         <>
           <h2 className="section">Bills this member sponsored or cosponsored</h2>
           <p className="lede">
-            <strong>{cosponsored.length}</strong> of the bills in our record, with the date they
-            signed on. This is here because it is a better question than the one the rest of this
-            page asks. A floor vote is scheduled by leadership, whipped by the party, and usually
-            decided before it is cast — 87% of our money trails come back &ldquo;no signal&rdquo;
-            partly for that reason. Cosponsoring is voluntary, individually attributable, dated,
-            and nobody is counting votes on it.
+            <strong>{cosponsorCount.toLocaleString()}</strong> of the bills in our record, with the
+            date they signed on. This is here because it is a better question than the one the rest
+            of this page asks. A floor vote is scheduled by leadership, whipped by the party, and
+            usually decided before it is cast — {noSignalPct}% of our money trails come back
+            &ldquo;no signal&rdquo; partly for that reason. Cosponsoring is voluntary, individually
+            attributable, dated, and nobody is counting votes on it.
           </p>
           <div className="card">
             <table>
@@ -360,7 +422,7 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
               From the same GovInfo BILLSTATUS XML as every bill page. A withdrawn cosponsorship
               keeps its row and its date — a member who signed on and then backed off is part of
               the record.
-              {cosponsored.length > 25 && <> Showing 25 of {cosponsored.length}.</>}
+              {cosponsorCount > 25 && <> Showing 25 of {cosponsorCount.toLocaleString()}.</>}
             </div>
           </div>
         </>
@@ -408,13 +470,16 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
           <tbody>
             {recent.map((v: any) => (
               <tr key={v.vote_key}>
-                <td><strong>{v.rollcall.legis_num || '—'}</strong>
-                  <div className="tiny">{(v.rollcall.vote_desc || '').slice(0, 70)}</div></td>
-                <td className="small">{v.rollcall.vote_question}</td>
-                <td className="small mono">{v.rollcall.iso_date}</td>
-                <td className="small mono">{v.rollcall.vote_result} {v.rollcall.yea}–{v.rollcall.nay}</td>
-                <td className={v.is_cast ? (isYes(v.position) ? 'vote-Y' : 'vote-N') : 'small'}>
-                  {v.position}{!v.is_cast && <div className="tiny">not counted as a position</div>}
+                <td>
+                  <Link href={`/vote/${encodeURIComponent(v.vote_key)}`}>
+                    <strong>{v.legis_num || 'Recorded vote'}</strong></Link>
+                  <div className="tiny">{(v.vote_desc || '').slice(0, 70)}</div></td>
+                <td className="small">{v.vote_question}</td>
+                <td className="small mono">{v.iso_date}</td>
+                <td className="small mono">{v.vote_result} {v.yea}–{v.nay}</td>
+                <td className={v.pos.is_cast ? (isYes(v.pos.position) ? 'vote-Y' : 'vote-N') : 'small'}>
+                  {v.pos.position}
+                  {!v.pos.is_cast && <div className="tiny">not counted as a position</div>}
                 </td>
               </tr>
             ))}

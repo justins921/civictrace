@@ -20,7 +20,15 @@ const SOURCES: [string, string, string][] = [
   ['House Appropriations FY2026 CPF file', 'https://appropriations.house.gov/fy26-member-requests/fy26-community-project-funding',
     'Consolidated earmark request spreadsheet — members’ own required disclosures.'],
   ['unitedstates/congress-legislators', 'https://github.com/unitedstates/congress-legislators',
-    'Legislator identity and the ID crosswalk between bioguide, FEC, ICPSR, LIS and OpenSecrets. Licensed CC0.'],
+    'Legislator identity, standing-committee membership, and the ID crosswalk between bioguide, FEC, ICPSR, LIS and OpenSecrets. Licensed CC0.'],
+  ['openFEC API — candidate totals', 'https://api.open.fec.gov/developers/',
+    'Total receipts, individual, PAC, party and self-funded money per candidate per cycle. This is the denominator on every member page: it is what tells you whether the committee money we trace is 64% of what a member raised or 4.5% of it. Context only — no trail is computed from it.'],
+  ['FEC bulk data — individual contributions (indiv)', 'https://www.fec.gov/data/browse-data/?tab=bulk-data',
+    'Itemized contributions from individuals, 29.3 million rows per cycle. Published here only as aggregates — size bands, occupations, employers above a three-donor floor, in-state share — and never as a name index. The file is itemized-only by law: a contributor is named once their giving passes $200 in aggregate, so it holds a majority but not all of a member’s individual money, and each member page states their own share.'],
+  ['FEC bulk data — independent expenditures', 'https://www.fec.gov/data/browse-data/?tab=bulk-data',
+    'Spending for or against a candidate by outside groups, shown on member pages as a separate ledger and never added to contributions. This file is filer-submitted and unvalidated: it currently contains multi-billion-dollar entries that are plainly not real, so filings above a plausibility ceiling are quarantined and counted rather than published.'],
+  ['Senate/House Lobbying Disclosure Act filings (lda.gov API)', 'https://lda.senate.gov/api/',
+    'Quarterly LD-2 filings: client, registrant, income or expenses, and a fixed list of 79 issue codes. Bill numbers are not a field in the LDA — registrants describe their work in prose — so bill-level lobbying here comes from parsing citations out of free text and covers a measured minority of filings.'],
 ]
 
 export default async function Methodology() {
@@ -42,8 +50,13 @@ export default async function Methodology() {
       // so the paragraph explaining why our totals drift from the FEC's was
       // itself drifting out of date. Read the live one; keep the FEC's as the
       // dated observation it is.
+      // bounds-ok: one row per sector for a single member. H4: this said
+      // V000133, which is a different member entirely (Ann Wagner of Missouri).
+      // The paragraph below names Derrick Van Orden and printed a total that
+      // was not his — and because he has money in the table, it printed a
+      // plausible wrong number rather than nothing, which is the worse failure.
       db.from('member_sector_money').select('bioguide,total')
-        .eq('cycle', CYCLE).eq('bioguide', 'V000133'),
+        .eq('cycle', CYCLE).eq('bioguide', 'V000135').limit(200),
     ])
 
   // Summed across sectors: the same member's money split by industry.
@@ -172,6 +185,14 @@ export default async function Methodology() {
               member broke from their own party on a contested vote while one pole of that industry
               was funding them. Which way they voted is printed next to it; draw your own
               conclusion.</li>
+          <li>It will never call money <em>one-sided</em> on the strength of not having looked.
+              That phrase requires three things at once: the industry has a declared axis, most of
+              its money to that member sits on one pole or the other, and one pole is at least
+              twice the size of the other. Where any of those fails, the trail keeps whatever else
+              is true about it — a member who broke from their party still gets a label saying so —
+              and drops the one-sidedness claim rather than asserting it by default. It previously
+              did the opposite: an industry with no axis produced two zeroes, and two zeroes tested
+              as &ldquo;one-sided&rdquo;.</li>
           <li>It shows the opposing pole whenever the industry has a declared axis, and says
               plainly when it does not. Three industries currently do. A <code>$0</code> on a
               trail without an axis means <em>not classified</em>, never <em>checked and none
@@ -196,13 +217,32 @@ export default async function Methodology() {
             lobbying are not yet loaded. Federal only for now.</li>
           <li>Senate Congressionally Directed Spending has no central disclosure file; each senator
             publishes their own. Wisconsin&apos;s senators are therefore absent from the earmark audit.</li>
-          <li>Federal lobbying filings name bills only in free text, inconsistently formatted. We
-            have not yet linked lobbying to bills, and when we do, extracted links will be labeled
-            as extracted rather than presented as authoritative.</li>
-          <li>Individual (non-committee) contributions are not published here. FEC rules restrict the
-            use of contributor names and addresses, and the feature adds nothing this version needs.</li>
-          <li>Wisconsin does not collect donor employer information at all — only occupation, and
-            only above $200 per year. No ingestion method recovers it.</li>
+          <li><strong>Lobbying is linked to bills, and covers a minority of lobbying by
+            construction.</strong> The Lobbying Disclosure Act has no bill-number field; registrants
+            describe their work in prose. We parse bill citations out of that prose, and we measure
+            what share of filed activities name a bill at all rather than guessing at it — the
+            current measurement is printed on every bill page. A bill with no lobbying listed has
+            not been shown to be unlobbied. It has been shown not to have been named in a filing we
+            could parse. Extracted links are labelled as extracted.</li>
+          <li><strong>Individual contributions are published as aggregates, and the legal claim we
+            used to make here was wrong.</strong> We previously said FEC rules prevented publishing
+            them. 52 U.S.C. §30111(a)(4) forbids <em>selling</em> contributor names and addresses or
+            using them to solicit; 11 CFR 104.15(c) and the FEC&apos;s own guidance exempt news and
+            opinion sites republishing the data. The restriction we cited does not exist. Publishing
+            aggregates rather than a name index is now an editorial choice and is described as one —
+            see the <a href="/corrections">corrections log</a>.</li>
+          <li>Individual money is <strong>itemized only</strong>. The FEC requires a contributor be
+            named once their giving passes $200 in aggregate, so smaller donations appear in a
+            member&apos;s reported total and in no public record naming anyone. Each member page
+            prints their own itemized share; read a large unitemized remainder as a small-dollar
+            base, not as secrecy.</li>
+          <li>The lobbying backfill is <strong>incomplete and fills in over successive daily
+            runs</strong>. The LDA API pages 25 filings at a time against 55,003 filings for the
+            year, so a full pass takes several runs. Issue-area totals and bill links are therefore
+            a floor, and both grow between refreshes.</li>
+          <li>Wisconsin does not collect donor employer information at the state level — only
+            occupation, and only above $200 per year. That is a state-data gap and does not affect
+            the federal filings above.</li>
         </ul>
       </div>
 

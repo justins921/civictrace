@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { db, money, shortMoney, partyLetter, officeLine, labelClass, trailHref, labelCounts, CYCLE } from '@/lib/db'
+import { db, money, shortMoney, partyLetter, officeLine, labelClass, trailHref, labelCounts, noSignalShare, LABELS, CYCLE } from '@/lib/db'
 import { Sleuth, DonorArt, CapitolArt, BillArt } from '@/components/Art'
 
 export const revalidate = 3600
@@ -20,15 +20,19 @@ export default async function Home() {
   // helper, so they cannot disagree again without both being wrong together.
   const [{ data: members }, { data: trails }, labels, { data: agg }, { count: rc }] =
     await Promise.all([
-      db.from('member').select('*').order('chamber', { ascending: false }).order('district'),
+      // bounds-ok: Wisconsin's delegation is ten members.
+      db.from('member').select('*').order('chamber', { ascending: false }).order('district').limit(50),
       db.from('trail_full').select('*').eq('cycle', CYCLE).order('rank').limit(3),
       labelCounts(),
-      db.from('earmark_agg').select('*'),
+      // bounds-ok: earmark_agg is pre-aggregated — party rows, one national
+      // row, and a top-ten. Twenty rows at the outside.
+      db.from('earmark_agg').select('*').limit(200),
       db.from('rollcall').select('*', { count: 'exact', head: true }),
     ])
 
   const { counts, total } = labels
   const nat = (agg || []).find((a: any) => a.scope === 'national')
+  const noSignalPct = noSignalShare(counts, total)
 
   return (
     <>
@@ -71,14 +75,13 @@ export default async function Home() {
         {/* The honesty panel, on the front page on purpose. */}
         <h2 className="section">What the engine actually concluded</h2>
         <p className="lede">
-          This is the number most transparency tools bury. Out of {total.toLocaleString()} money-and-vote overlaps in
-          Wisconsin&apos;s delegation, almost all of them turn out to mean nothing — the vote was
-          near-unanimous, or the member simply voted with their party. A tool that produced a scandal
-          from every one of these would be lying to you.
+          This is the number most transparency tools bury. Out of {total.toLocaleString()} money-and-vote
+          overlaps in Wisconsin&apos;s delegation, <strong>{noSignalPct}%</strong> turn out to mean
+          nothing — the vote was near-unanimous, or the member simply voted with their party. A tool
+          that produced a scandal from every one of these would be lying to you.
         </p>
-        <div className="grid g4">
-          {['Near-unanimous vote — no signal', 'Party-line vote — low signal', 'Contested vote, industry money present', 'Contested vote, one-sided industry money', 'Crossed party, one-sided industry money']
-            .map(l => (
+        <div className="grid g3">
+          {[...LABELS].reverse().map(l => (
               <div className="card" key={l}>
                 <span className={`badge ${labelClass(l).badge}`}>{l}</span>
                 <div className="kpi mono" style={{ marginTop: 10 }}>{counts[l] || 0}</div>
@@ -90,15 +93,23 @@ export default async function Home() {
         </div>
 
         <h2 className="section">The three worth reading first</h2>
-        {(counts['Crossed party, one-sided industry money'] || 0) === 0 && (
+        {(counts[LABELS[0]] || 0) === 0 && (
           <div className="note">
             <strong>Nothing currently carries our strongest label, and we would rather say so than
             promote something to fill the slot.</strong> Until August 6 three trails did. All three
             were wrong: two were votes on amendments, whose subject appears nowhere in the
             roll-call record but which inherit the parent bill&apos;s industry, and the third
             matched an aviation safety bill to railroad and construction money because our
-            industry categories were a level too coarse. Both defects are fixed and the trails are
-            gone. See the <Link href="/corrections">corrections log</Link>.
+            industry categories were a level too coarse.
+            {(counts[LABELS[2]] || 0) === 0 && (
+              <> The two <em>one-sided industry money</em> labels are empty for a second and
+              narrower reason: calling money one-sided now requires that the industry has a
+              declared two-sided axis, that most of its money to that member sits on one pole or
+              the other, and that one pole is at least twice the size of the other. Until August 6
+              an industry with <em>no</em> axis passed that test automatically, because two zeroes
+              compared as a landslide. Nothing in the current data clears the real version.</>
+            )}{' '}
+            See the <Link href="/corrections">corrections log</Link>.
           </div>
         )}
         <p className="lede">

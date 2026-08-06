@@ -38,6 +38,26 @@ def q(v):
 
 FILES = []
 JSONCOLS = {"external_ids", "payments", "sectors", "top_pacs"}
+
+
+def rows_of(sql, table, params=()):
+    """Rows from a table that may not exist yet.
+
+    etl.py deletes and rebuilds the database on every run, and the daily refresh
+    is now allowed to skip an optional loader when it is close to its wall-clock
+    budget. A skipped loader leaves no table behind, and a bare SELECT then
+    raises OperationalError and takes down a refresh that was otherwise fine.
+    The publish step already knows not to replace a skipped loader's table, so
+    an empty export here is correct and harmless: it is written, and it is not
+    read."""
+    have = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                     (table,)).fetchone()
+    if not have:
+        print(f"{table}: table absent — its loader did not run; exporting nothing")
+        return []
+    return [dict(r) for r in c.execute(sql, params)]
+
+
 def dump(name, table, rows, cols, per=400):
     out = []
     for r in rows:
@@ -140,6 +160,18 @@ for m in WI:
             "total_pac_dollars": t["money"]["total_pac_dollars"],
             "aligned_side_dollars": t["money"]["aligned_side_dollars"],
             "opposed_side_dollars": t["money"]["opposed_side_dollars"],
+            # C2. These five were computed on every trail, carried through
+            # trail.py, and then dropped on the floor here — the export never
+            # named them, so they never reached a column, a view or a page.
+            # TrailView.tsx branches on `has_interest_axis`, which arrived
+            # undefined on every trail, so every trail on the site rendered the
+            # "this industry has no axis" branch including the three sectors
+            # that do have one. Three features computed and never shipped.
+            "has_interest_axis": t["money"]["has_interest_axis"],
+            "axis_name": t["money"]["axis_name"],
+            "larger_pole": t["money"]["larger_pole"],
+            "smaller_pole": t["money"]["smaller_pole"],
+            "unaligned_dollars": t["money"]["unaligned_dollars"],
             "adjacent_dollars": t["money"]["adjacent_dollars"],
             "adjacent_sides": "; ".join(t["money"]["adjacent_sides"]) or None,
             "bill_side": "; ".join(sorted(set(t["money"]["bill_sides"].values()))) or None,
@@ -152,11 +184,21 @@ for m in WI:
             "position": t["vote"]["position"],
         })
 ORDER = {"Crossed party, one-sided industry money": 0,
-         "Contested vote, one-sided industry money": 1,
-         "Contested vote, industry money present": 2,
-         "Party-line vote — low signal": 3,
-         "Near-unanimous vote — no signal": 4}
-trails.sort(key=lambda t: (ORDER.get(t["label"], 9), -t["sector_dollars"]))
+         "Crossed party, industry money present": 1,
+         "Contested vote, one-sided industry money": 2,
+         "Contested vote, industry money present": 3,
+         "Party-line vote — low signal": 4,
+         "Near-unanimous vote — no signal": 5}
+# Keep this in step with LABELS in web/lib/db.ts. A label the site does not know
+# sorts last and renders with the default badge, which is a silent downgrade
+# rather than an error, so the pipeline says so out loud instead.
+unknown = sorted({t["label"] for t in trails} - set(ORDER))
+if unknown:
+    raise SystemExit(
+        f"alignment_label produced label(s) the site does not know: {unknown}. "
+        f"Add them to ORDER here and to LABELS in web/lib/db.ts, in the same order, "
+        f"before publishing — an unknown label sorts last and renders unstyled.")
+trails.sort(key=lambda t: (ORDER[t["label"]], -t["sector_dollars"]))
 for i, t in enumerate(trails): t["rank"] = i
 
 dump("01_member", "member", members, ["bioguide","full_name","first_name","last_name","chamber",
@@ -179,7 +221,8 @@ dump("09_earmark", "earmark", ears, ["fiscal_year","last_name","first_name","mem
 dump("09b_earmark_agg", "earmark_agg", ear_agg, ["scope","key","n","total"], per=50)
 dump("10_trail", "money_trail", trails, ["vote_key","bioguide","cycle","bill_key","label","label_why",
      "sectors","top_pacs","sector_dollars","sector_share_pct","total_pac_dollars","aligned_side_dollars",
-     "opposed_side_dollars","adjacent_dollars","adjacent_sides","bill_side",
+     "opposed_side_dollars","has_interest_axis","axis_name","larger_pole","smaller_pole",
+     "unaligned_dollars","adjacent_dollars","adjacent_sides","bill_side",
      "pac_count","days_since_last_sector_contribution","party_line_share_pct",
      "minority_share_pct","voted_with_chamber","voted_with_party","position","rank"], per=90)
 
@@ -190,56 +233,64 @@ dump("10_trail", "money_trail", trails, ["vote_key","bioguide","cycle","bill_key
 wi_bios = tuple(m["bioguide"] for m in members)
 _q = ",".join("?" * len(wi_bios))
 
-totals = [dict(r) for r in c.execute("SELECT * FROM candidate_totals")]
+totals = rows_of("SELECT * FROM candidate_totals", "candidate_totals")
 dump("12_totals", "candidate_totals", totals,
      ["bioguide","cand_id","cycle","receipts","individual","pac","party","self_funded",
       "transfers","disbursements","cash_on_hand","coverage_end","source_url"], per=50)
 
-spons = [dict(r) for r in c.execute(
-    f"SELECT * FROM bill_sponsor WHERE bioguide IN ({_q})", wi_bios)]
+spons = rows_of(f"SELECT * FROM bill_sponsor WHERE bioguide IN ({_q})",
+                "bill_sponsor", wi_bios)
 dump("13_sponsor", "bill_sponsor", spons,
      ["bill_key","bioguide","role","sponsored_date","is_original","withdrawn_date",
       "full_name","party","state"], per=200)
 
-assigns = [dict(r) for r in c.execute(f"""
+assigns = rows_of(f"""
     SELECT ca.bioguide, ca.thomas_id, ca.committee_name, ca.chamber, ca.parent_id,
            ca.is_subcommittee, ca.title, ca.rank,
            (SELECT GROUP_CONCAT(DISTINCT cj.sector) FROM committee_jurisdiction cj
              WHERE cj.thomas_id = ca.thomas_id) AS jurisdiction_sectors,
            (SELECT GROUP_CONCAT(DISTINCT cj.rule_id) FROM committee_jurisdiction cj
              WHERE cj.thomas_id = ca.thomas_id) AS rule_ids
-    FROM committee_assignment ca WHERE ca.bioguide IN ({_q})""", wi_bios)]
+    FROM committee_assignment ca WHERE ca.bioguide IN ({_q})""", "committee_assignment", wi_bios)
 dump("14_assignment", "committee_assignment", assigns,
      # NB: not called `sectors`. That name is in JSONCOLS and gets json.loads()d
      # on the way out, which turned a comma-joined string into a parse error.
      ["bioguide","thomas_id","committee_name","chamber","parent_id","is_subcommittee",
       "title","rank","jurisdiction_sectors","rule_ids"], per=200)
 
-ies = [dict(r) for r in c.execute(
-    "SELECT * FROM independent_expenditure WHERE quarantined = 0")]
+ies = rows_of("SELECT * FROM independent_expenditure WHERE quarantined = 0",
+              "independent_expenditure")
 dump("15_ie", "independent_expenditure", ies,
      ["bioguide","cand_id","cycle","spender_id","spender_name","support_oppose","amount",
       "iso_date","purpose","file_num","tran_id","image_num","amndt_ind","source_url"], per=120)
 
-lob_i = [dict(r) for r in c.execute("SELECT * FROM lobbying_issue")]
-dump("17_lobby_issue", "lobbying_issue", lob_i, ["year","issue","filings","reported_spend"], per=100)
-lob_b = [dict(r) for r in c.execute("SELECT * FROM lobbying_bill")]
+lob_i = rows_of("SELECT * FROM lobbying_issue", "lobbying_issue")
+dump("17_lobby_issue", "lobbying_issue", lob_i,
+     ["year","issue","filings","reported_spend","attributed_spend"], per=100)
+lob_b = rows_of("SELECT * FROM lobbying_bill", "lobbying_bill")
 dump("17b_lobby_bill", "lobbying_bill", lob_b,
-     ["bill_key","year","period","client","registrant","amount","issue","description","source_url"],
-     per=150)
+     ["bill_key","year","period","client","registrant","amount","issue_count","issue",
+      "description","source_url"], per=150)
+# The measured share of lobbying activities that name a bill. Every bill page
+# prints it; it used to be the string "15%" typed into JSX from a hand sample of
+# one quarter, which is not a measurement and could not go out of date visibly.
+lob_c = rows_of("SELECT * FROM lobbying_coverage", "lobbying_coverage")
+dump("17c_lobby_cov", "lobbying_coverage", lob_c,
+     ["year","filings_scanned","activities","activities_citing_bill","bill_mentions",
+      "bills_matched","complete"], per=50)
 
-indiv = [dict(r) for r in c.execute("SELECT * FROM individual_agg")]
+indiv = rows_of("SELECT * FROM individual_agg", "individual_agg")
 dump("16_individual", "individual_agg", indiv,
-     ["bioguide","cycle","dimension","key","donations","total"], per=300)
+     ["bioguide","cycle","dimension","key","donations","donors","total"], per=300)
 
-ie_agg = [dict(r) for r in c.execute("""
+ie_agg = rows_of("""
     SELECT bioguide, cycle,
            SUM(CASE WHEN support_oppose='S' THEN amount ELSE 0 END) AS supporting,
            SUM(CASE WHEN support_oppose='O' THEN amount ELSE 0 END) AS opposing,
            COUNT(*) AS filings,
            (SELECT COUNT(*) FROM independent_expenditure q
              WHERE q.bioguide = ie.bioguide AND q.quarantined = 1) AS quarantined
-    FROM independent_expenditure ie WHERE quarantined = 0 GROUP BY 1,2""")]
+    FROM independent_expenditure ie WHERE quarantined = 0 GROUP BY 1,2""", "independent_expenditure")
 dump("15b_ie_agg", "ie_agg", ie_agg,
      ["bioguide","cycle","supporting","opposing","filings","quarantined"], per=50)
 

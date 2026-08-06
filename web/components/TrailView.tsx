@@ -14,8 +14,16 @@ export type Trail = {
   label: string; label_why: string
   sectors: Sector[]; top_pacs: Pac[]
   sector_dollars: number; sector_share_pct: number; total_pac_dollars: number
+  /* `larger_pole_dollars` / `smaller_pole_dollars` are what these are. The
+     `aligned` / `opposed` names read as aligned with and opposed to the
+     member's vote, which is the one thing this project refuses to claim, and
+     they are kept only so a page rendered against a database that has not been
+     migrated yet still shows a number instead of a blank. */
+  larger_pole_dollars?: number | null; smaller_pole_dollars?: number | null
   aligned_side_dollars: number; opposed_side_dollars: number; pac_count: number
-  has_interest_axis?: boolean; larger_pole?: string | null; smaller_pole?: string | null
+  has_interest_axis?: boolean | null; axis_name?: string | null
+  larger_pole?: string | null; smaller_pole?: string | null
+  unaligned_dollars?: number | null
   adjacent_dollars?: number | null; adjacent_sides?: string | null; bill_side?: string | null
   days_since_last_sector_contribution: number | null
   timing_date: string | null; timing_same_day: boolean
@@ -75,6 +83,8 @@ function SourceCard({ n, kind, who, value, meta, href, label }: {
 
 export function TrailView({ t }: { t: Trail }) {
   const lc = labelClass(t.label)
+  const largerPole = t.larger_pole_dollars ?? t.aligned_side_dollars
+  const smallerPole = t.smaller_pole_dollars ?? t.opposed_side_dollars
   const top = t.top_pacs?.[0]
   const days = t.days_since_last_sector_contribution
   const sectorNames = (t.sectors || []).map(s => s.sector).join(', ')
@@ -197,18 +207,33 @@ export function TrailView({ t }: { t: Trail }) {
             <div className="eyebrow" style={{ color: 'var(--blue)' }}>
               {t.smaller_pole ? `Money from the ${t.smaller_pole} side` : 'Money from the other side'}
             </div>
-            <div className="kpi" style={{ fontSize: 26, marginTop: 4 }}>{money(t.opposed_side_dollars)}</div>
+            <div className="kpi" style={{ fontSize: 26, marginTop: 4 }}>{money(smallerPole)}</div>
             <div className="small">
               {t.has_interest_axis ? (
                 <>came from committees on the <strong>{t.smaller_pole || 'opposing'}</strong> pole
-                of this industry, against <strong>{money(t.aligned_side_dollars)}</strong> from{' '}
-                <strong>{t.larger_pole}</strong>. That is our classification of each committee, not
-                a statement about this bill.</>
+                of this industry, against <strong>{money(largerPole)}</strong> from{' '}
+                <strong>{t.larger_pole}</strong>
+                {t.axis_name ? <> — the {t.axis_name} axis</> : null}. That is our classification of
+                each committee, not a statement about this bill.</>
               ) : (
                 <>This industry has no two-sided axis in our classifier, so we cannot tell you what
                 another side gave. Read this zero as <strong>missing</strong>, not as checked.</>
               )}
             </div>
+            {/* The share of the industry's money the poles actually account
+                for. Without it, "$90,000 against $5,000" reads as the whole
+                picture even when the two together are a seventh of the money —
+                which was the case on all three of the trails this site ranked
+                highest, and is why the labeller no longer calls that
+                one-sided. */}
+            {t.has_interest_axis && Number(t.unaligned_dollars) > 0 && (
+              <div className="small" style={{ marginTop: 6 }}>
+                A further <strong>{money(t.unaligned_dollars)}</strong> — {Math.round(
+                  (100 * Number(t.unaligned_dollars)) / Math.max(1, Number(t.sector_dollars)))}%
+                of this industry&apos;s money to this member — came from committees we could not
+                place on either pole. It is neither of the two figures above.
+              </div>
+            )}
             <div className="tiny" style={{ marginTop: 8 }}>
               {t.has_interest_axis
                 ? 'Shown beside the industry total by design. A trail that shows only one side of an industry is an argument, not a record. Three industries currently carry a declared axis — energy, health care and guns — and the others say so here rather than printing a zero that looks like a finding.'

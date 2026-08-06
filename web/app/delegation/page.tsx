@@ -11,8 +11,11 @@ export const revalidate = 3600
 
 export default async function Delegation() {
   const [{ data: members }, { data: sectors }] = await Promise.all([
-    db.from('member').select('*').order('chamber', { ascending: false }).order('district'),
-    db.from('member_sector_money').select('*').eq('cycle', CYCLE),
+    // bounds-ok: Wisconsin's delegation is ten members, and member_sector_money
+    // is one row per member per sector — ten times a ~25-name vocabulary.
+    db.from('member').select('*').order('chamber', { ascending: false })
+      .order('district').limit(50),
+    db.from('member_sector_money').select('*').eq('cycle', CYCLE).limit(2000),
   ])
 
   const byBio: Record<string, any[]> = {}

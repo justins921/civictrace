@@ -69,7 +69,21 @@ PAC_RULES = [
     # both sides and the broad pattern would otherwise swallow them.
     ("G01", "Guns & Public Safety", r"\b(EVERYTOWN|GIFFORDS|BRADY CAMPAIGN|BRADY PAC|MARCH FOR OUR LIVES|MOMS DEMAND)\b", "gun violence prevention"),
     ("G02", "Guns & Public Safety", r"\b(NATIONAL RIFLE|NRA |GUN OWNERS|FIREARMS|SPORTING SHOOTING|SAFARI CLUB|NATIONAL SHOOTING SPORTS)\b", "gun rights"),
-    ("I01", "Foreign Policy", r"\b(AMERICAN ISRAEL PUBLIC AFFAIRS|AIPAC|J STREET|ARMENIAN|HELLENIC|INDIA POLITICAL|TURKISH)\b", "foreign policy advocacy"),
+    # The same defect as the old G01, one sector over: a single rule gave AIPAC
+    # and J Street the same interest side, and gave every country-specific
+    # advocacy committee the same one as well. AIPAC and J Street lobby against
+    # each other on the substance of most of the bills they both work — a shared
+    # label states that they want the same thing, which is the one claim the
+    # record does not support. They are separated here by organisation, not by
+    # position: CivicTrace does not say which of them is right, and Foreign
+    # Policy is deliberately left with no declared axis for the same reason.
+    # J Street is matched first because "ISRAEL" appears in names on both sides.
+    ("I01", "Foreign Policy", r"\b(J STREET)\b", "Israel policy — J Street"),
+    ("I02", "Foreign Policy", r"\b(AMERICAN ISRAEL PUBLIC AFFAIRS|AIPAC)\b", "Israel policy — AIPAC"),
+    ("I03", "Foreign Policy", r"\b(ARMENIAN)\b", "Armenian-American advocacy"),
+    ("I04", "Foreign Policy", r"\b(HELLENIC)\b", "Greek-American advocacy"),
+    ("I05", "Foreign Policy", r"\b(INDIA POLITICAL)\b", "India–U.S. advocacy"),
+    ("I06", "Foreign Policy", r"\b(TURKISH)\b", "Turkey–U.S. advocacy"),
     ("J01", "Legal", r"\b(TRIAL LAWYERS|ASSOCIATION FOR JUSTICE|BAR ASSOCIATION|ATTORNEYS|LAW FIRM)\b", "legal profession"),
 ]
 
@@ -103,11 +117,24 @@ SECTOR_AXIS = {
     "Energy & Utilities": {
         "axis": "carbon-intensive energy vs climate and conservation advocacy",
         "poles": {
-            "carbon-intensive energy": ["utility", "oil & gas", "mining"],
+            "carbon-intensive energy": ["oil & gas", "mining"],
             "climate & conservation": ["clean energy / environment"],
         },
-        "unaligned_note": "Nuclear and biofuel committees are recorded but placed on "
-                          "neither pole: both are contested ground in energy politics.",
+        # Investor-owned utilities were on the carbon pole and should not have
+        # been. Rule E01 matches Exelon, whose generation is majority nuclear,
+        # and NextEra, the largest operator of wind and solar in the United
+        # States, alongside utilities that burn mostly coal. A regulated utility
+        # buys whatever its state commission lets it build, and its position on
+        # a given energy bill follows from that mix rather than from being a
+        # utility. Putting the whole side on one pole was an editorial call
+        # dressed as a classification — and it was the side with the most money
+        # in it, so it decided the pole split on most energy trails.
+        "unaligned_note": "Utility, nuclear and biofuel committees are recorded but "
+                          "placed on neither pole. Utilities own generation across the "
+                          "whole mix, from lignite to offshore wind, and nuclear and "
+                          "biofuels are contested ground in energy politics; assigning "
+                          "any of them to a pole would be a political judgement rather "
+                          "than a classification.",
     },
     "Health Care": {
         "axis": "payers vs providers",
@@ -311,7 +338,12 @@ def classify_bill(policy_area, title, summary):
     head = (title or "").lower()
     hay = f"{title or ''} {(summary or '')[:2500]}".lower()
     for rid, sector, pat in BILL_TEXT_RULES:
-        found = {m.group(0) for m in re.finditer(pat, hay)}
+        # re.I, because `hay` is lower-cased and several patterns carry tokens
+        # that only exist in upper case: 'PBM', 'LNG', '340B'. Those tokens could
+        # never match anything and had been dead since the day they were
+        # written — the PBM rule, in particular, is the whole of what pins a
+        # health bill to pharmacy benefit managers, and it had never once fired.
+        found = {m.group(0) for m in re.finditer(pat, hay, re.I)}
         if not found:
             continue
         specific = sorted(t for t in found if t not in WEAK_TERMS)
@@ -374,7 +406,7 @@ def main():
             for rid, sec, sd, pat in BILL_SIDE_RULES:
                 if sec != sector:
                     continue
-                m = re.search(pat, hay)
+                m = re.search(pat, hay, re.I)
                 if m:
                     # First match wins, and a second match on a *different* side
                     # means the bill spans the sector — no side, whole sector.

@@ -1,12 +1,15 @@
 import Link from 'next/link'
-import { db } from '@/lib/db'
+import { db, fetchAll } from '@/lib/db'
 
 export const metadata = {
   title: 'Every recorded vote — CivicTrace',
   description: 'All 505 roll calls the Wisconsin delegation took part in — bills, amendments, nominations and procedural motions, each with its own page and its source file.',
 }
 
-export const revalidate = 3600
+/* No `revalidate` here on purpose. This route reads `searchParams`, which makes
+   it dynamically rendered on every request — there is no static output for a
+   revalidation window to apply to, and the export that used to sit here read as
+   though the page were cached for an hour when nothing about it ever was. */
 
 const PER_PAGE = 80
 
@@ -27,22 +30,23 @@ export default async function Votes({ searchParams }:
   const page = Math.max(1, parseInt(sp.p || '1', 10) || 1)
 
   // Fetched in full because the kind of a vote is derived from its label rather
-  // than stored, so it cannot be filtered in the query. 505 rows is small; the
-  // moment this table crosses PostgREST's 1000-row ceiling the derivation has
-  // to move into the pipeline, and the count below will stop matching if it
-  // does not.
-  const [{ data: rows, count }, { data: bills }] = await Promise.all([
-    db.from('rollcall').select('*', { count: 'exact' })
-      .order('iso_date', { ascending: false }).order('vote_key', { ascending: false })
-      .range(0, 999),
-    db.from('bill').select('bill_key,bill_type,bill_num'),
+  // than stored, so it cannot be filtered in the query. `fetchAll` pages past
+  // PostgREST's 1000-row ceiling and throws rather than truncating, which
+  // replaces the "if this ever crosses 1000" note that used to sit here with
+  // something that actually holds when it does.
+  const [all, bills] = await Promise.all([
+    fetchAll<any>('rollcall', (q) =>
+      q.order('iso_date', { ascending: false }).order('vote_key', { ascending: false })),
+    // 2,419 bills and growing — this was capped at 1,000, so every vote whose
+    // bill sorted past the cap rendered as a bare label with no link to the
+    // bill page that exists for it.
+    fetchAll<any>('bill', (q) => q.order('bill_key'),
+      { columns: 'bill_key,bill_type,bill_num' }),
   ])
 
-  const all = rows || []
-  const truncated = (count || 0) > all.length
   const norm = (v: string) => (v || '').replace(/[^a-z0-9]/gi, '').toUpperCase()
   const billFor: Record<string, string> = {}
-  for (const b of bills || []) billFor[norm(b.bill_type + b.bill_num)] = b.bill_key
+  for (const b of bills) billFor[norm(b.bill_type + b.bill_num)] = b.bill_key
 
   const counts: Record<string, number> = {}
   for (const r of all) counts[KIND(r.legis_num)] = (counts[KIND(r.legis_num)] || 0) + 1
@@ -81,14 +85,6 @@ export default async function Votes({ searchParams }:
           </Link>
         ))}
       </div>
-
-      {truncated && (
-        <div className="note">
-          <strong>This page is showing {all.length.toLocaleString()} of {count?.toLocaleString()}{' '}
-          roll calls.</strong> The database returned a capped page. That is a bug — please{' '}
-          <Link href="/contact">report it</Link>.
-        </div>
-      )}
 
       <div className="card">
         <table>

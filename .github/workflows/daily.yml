@@ -1,6 +1,6 @@
 # CivicTrace daily data refresh.
 #
-# Free, versioned, and it keeps its own logs. Add three repository secrets
+# Free, versioned, and it keeps its own logs. Add these repository secrets
 # (Settings -> Secrets and variables -> Actions):
 #
 #   SUPABASE_URL        https://vzvtlwfvncwwtzntndmy.supabase.co
@@ -15,7 +15,7 @@
 # the member pages lose their coverage lines on most days.
 #
 # The token only works with three database functions and can only touch the
-# eleven fact tables. It cannot read auth, edit corrections, or alter the schema.
+# twenty fact tables. It cannot read auth, edit corrections, or alter the schema.
 name: daily refresh
 
 on:
@@ -28,12 +28,36 @@ concurrency:
   cancel-in-progress: false   # never let two runs replace the same tables at once
 
 jobs:
+  # Cheap, fast, and it fails before anything is fetched or published. The
+  # bounds check is the mechanical enforcement of the one rule this codebase has
+  # broken seven times across four outside reviews: never count an unbounded
+  # PostgREST response. Vercel runs it too, as part of `npm run build`, so a
+  # deploy cannot ship one either.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run check:bounds
+      - run: npm run typecheck
+
   refresh:
     runs-on: ubuntu-latest
-    # M17 revalidation added ~700 conditional requests, taking a clean run from
-    # about 95 seconds to about 11 minutes. 60 is still generous; lower it and a
-    # slow day at the Clerk cancels a good refresh.
-    timeout-minutes: 60
+    # The job budget and the pipeline's own budget are separate numbers on
+    # purpose. CT_BUDGET_MINUTES is when the pipeline stops fetching and starts
+    # publishing; timeout-minutes is the hard kill. The gap between them is the
+    # margin that keeps a non-atomic publish from being cut in half by CI —
+    # which is what the previous single 60-minute timeout could do, leaving some
+    # tables refreshed, some not, and no error recorded anywhere.
+    timeout-minutes: 75
     defaults:
       run:
         working-directory: pipeline
@@ -42,6 +66,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      # Without this the resumable loaders are not resumable.
+      #
+      # Every run gets a fresh checkout, so `pipeline/data/` started empty every
+      # morning: the LDA fetch restarted at page 1 and got through its 900-second
+      # slice of a 2,200-request year, the same 12,000 filings, every single day,
+      # forever. The checkpoint code was correct and had nothing to resume from.
+      # The openFEC cache had the same problem, and the FEC conditional
+      # revalidation could never send an If-Modified-Since because the file it
+      # would have stamped was not there.
+      #
+      # Rolling cache: restore the newest entry with this prefix, save a new one
+      # keyed on the run. Only the small state files — the 2 GB contributions
+      # archive is faster to re-fetch than to push through the cache service.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            pipeline/data/lda_state.json
+            pipeline/data/candidate_totals.json
+          key: ct-state-${{ github.run_id }}
+          restore-keys: ct-state-
+
       - run: pip install -r requirements.txt
       - run: python daily_update.py
         env:
@@ -51,9 +97,12 @@ jobs:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
           # Optional. Without it the LDA fetch runs at 15 requests a minute
           # instead of 120, so the lobbying data fills in over a week of daily
-          # runs rather than in one. It is resumable either way.
+          # runs rather than in one. It is resumable either way — and, with the
+          # cache above, resumable in a way that actually survives to tomorrow.
           LDA_API_KEY: ${{ secrets.LDA_API_KEY }}
           CT_SOURCE: github actions
+          CT_BUDGET_MINUTES: '42'
+          CT_PUBLISH_RESERVE_MINUTES: '12'
       # Blocks a bad refresh from standing: if any two routes to a published
       # total disagree, this fails and the run is marked failed.
       - run: python check_reconciliation.py

@@ -87,9 +87,15 @@ def save_cache(d):
 
 con = sqlite3.connect(BASE / "civictrace.db")
 c = con.cursor()
+# `IF NOT EXISTS`, not `DROP`. This file's own docstring says it never drops the
+# table — that the on-disk cache exists precisely so a rate-limited run degrades
+# to yesterday's figures instead of emptying the coverage lines on ten member
+# pages. Two lines below the docstring it dropped the table, at import, before
+# any of that logic ran, so a run that fetched nothing published nothing. The
+# `INSERT OR REPLACE` below already makes this idempotent; the DROP only ever
+# removed the safety net.
 c.executescript("""
-DROP TABLE IF EXISTS candidate_totals;
-CREATE TABLE candidate_totals (
+CREATE TABLE IF NOT EXISTS candidate_totals (
   bioguide TEXT, cand_id TEXT, cycle INTEGER,
   receipts REAL, individual REAL, pac REAL, party REAL, self_funded REAL,
   transfers REAL, disbursements REAL, cash_on_hand REAL,

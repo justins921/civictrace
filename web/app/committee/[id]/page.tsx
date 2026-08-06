@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { db, money, partyLetter, officeLine, labelClass, trailHref, hrefFor , CYCLE, CYCLE_LABEL } from '@/lib/db'
+import { db, money, partyLetter, officeLine, labelClass, trailHref, hrefFor, fetchAll, CYCLE, CYCLE_LABEL, SITE_URL } from '@/lib/db'
 import { DonorArt } from '@/components/Art'
 
 export const revalidate = 3600
@@ -17,23 +17,57 @@ const CMTE_TYPE: Record<string, string> = {
   S: 'Senate candidate committee', P: 'Presidential candidate committee', D: 'Delegate committee',
 }
 
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const { data: c } = await db.from('committee_profile')
+    .select('cmte_name,sector,interest_side,total_to_wi')
+    .eq('cmte_id', id).eq('cycle', CYCLE).maybeSingle()
+  if (!c) return { title: 'Contributing committee — CivicTrace' }
+  const title = `${c.cmte_name} — CivicTrace`
+  const description =
+    `Every direct contribution ${c.cmte_name} made to a Wisconsin member of Congress in the `
+    + `${CYCLE_LABEL}, with a link to the filed FEC document for each one. Classified as `
+    + `${c.sector || 'Unclassified'}${c.interest_side ? ` · ${c.interest_side}` : ''}.`
+  return {
+    title, description,
+    alternates: { canonical: `${SITE_URL}/committee/${id}` },
+    openGraph: { title, description, url: `${SITE_URL}/committee/${id}` },
+  }
+}
+
 export default async function Committee({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  // bounds-ok: one row per cycle for a single committee.
   const { data: rowsRaw } = await db.from('committee_profile').select('*')
-    .eq('cmte_id', id).order('cycle', { ascending: false })
+    .eq('cmte_id', id).order('cycle', { ascending: false }).limit(50)
   const rows = rowsRaw || []
   if (!rows.length) notFound()
   // The published cycle is the page. Earlier cycles are listed further down under
   // their own heading — never added into the headline figure, which is the defect
   // an outside review found here ($115,000 of 2023-2026 money labelled "2026").
-  const c = rows.find((r: any) => Number(r.cycle) === CYCLE) || rows[0]
+  /* M: 535 of these pages showed 2024 money under a "2026 cycle" heading.
+     A committee that gave to a Wisconsin member in 2024 and not since has no
+     published-cycle row, so this fell back to its newest row — and every label
+     below it is a constant that says 2026. The fallback is still right (a page
+     with nothing on it is worse than a page about the last cycle it gave in),
+     but the page has to be labelled with the cycle it is actually showing. */
+  const published = rows.find((r: any) => Number(r.cycle) === CYCLE)
+  const c = published || rows[0]
+  const shownCycle = Number(c.cycle)
+  const shownLabel = `${shownCycle} cycle`
+  const isPublishedCycle = Boolean(published)
   const otherCycles = rows.filter((r: any) => Number(r.cycle) !== CYCLE
     && Number(r.payments_to_wi) > 0)
 
-  const [{ data: recips }, { data: pays }, { data: trailsRaw, count: trailCount, error: trailErr }] = await Promise.all([
+  const [{ data: recips }, pays, { data: trailsRaw, count: trailCount, error: trailErr }] = await Promise.all([
+    // bounds-ok: at most one row per Wisconsin member.
     db.from('committee_recipients').select('*').eq('filer_cmte_id', id).eq('cycle', CYCLE)
-      .order('total', { ascending: false }).order('bioguide', { ascending: true }),
-    db.from('committee_payments').select('*').eq('filer_cmte_id', id).eq('cycle', CYCLE),
+      .order('total', { ascending: false }).order('bioguide', { ascending: true }).limit(100),
+    // Every individual payment this committee made to a Wisconsin member. The
+    // busiest committee in the file is well under a page, but a leadership PAC
+    // in a wave cycle is exactly the case that would quietly cross it.
+    fetchAll<any>('committee_payments',
+      (q: any) => q.eq('filer_cmte_id', id).eq('cycle', CYCLE).order('iso_dt')),
     // Filtered in the database, not here. This used to pull the top 300 trails
     // by rank and search them in JS for this committee. At 591 trails that was
     // merely lossy; at 1,032 it left 24 of 167 committees rendering no trails
@@ -91,7 +125,7 @@ export default async function Committee({ params }: { params: Promise<{ id: stri
           </div>
         </div>
         <div style={{ flex: 'none', minWidth: 0 }}>
-          <div className="eyebrow">Given to Wisconsin members · {CYCLE_LABEL}</div>
+          <div className="eyebrow">Given to Wisconsin members · {shownLabel}</div>
           <div className="kpi mono">{money(totalAll)}</div>
           <div className="small">
             {payAll} payment{payAll === 1 ? '' : 's'} to {(recips || []).length} member
@@ -105,7 +139,18 @@ export default async function Committee({ params }: { params: Promise<{ id: stri
         </div>
       </div>
 
-      {otherCycles.length > 0 && (
+      {!isPublishedCycle && (
+        <div className="note">
+          <strong>This committee has given nothing to a sitting Wisconsin member in the{' '}
+          {CYCLE_LABEL}.</strong> Every figure on this page is from the {shownLabel} — the most
+          recent cycle in which it did — and it is labelled that way throughout. It is not counted
+          in any total on <Link href="/donors">the donors page</Link>, on{' '}
+          <Link href="/industries">industries</Link>, or in any money trail, all of which publish
+          the {CYCLE_LABEL} only.
+        </div>
+      )}
+
+      {otherCycles.length > 0 && isPublishedCycle && (
         <div className="note" style={{ marginTop: 16 }}>
           <strong>This page covers the {CYCLE_LABEL} only.</strong> This committee also gave in{' '}
           {otherCycles.map((r: any, i: number) => (
@@ -154,7 +199,7 @@ export default async function Committee({ params }: { params: Promise<{ id: stri
         </table>
         {(recips || []).length === 0 && (
           <p className="small" style={{ margin: 0 }}>
-            No direct contributions to a sitting Wisconsin member in the {CYCLE_LABEL}.
+            No direct contributions to a sitting Wisconsin member in the {shownLabel}.
           </p>
         )}
       </div>

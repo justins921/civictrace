@@ -1,8 +1,17 @@
 import Link from 'next/link'
-import { db, money, hrefFor, ENTITY_LABEL } from '@/lib/db'
+import { db, money, hrefFor, ENTITY_LABEL, countRows } from '@/lib/db'
 
-export const revalidate = 600
+export const metadata = {
+  title: 'Search — CivicTrace',
+  description: 'Search Wisconsin politicians, contributing committees, bills and sectors.',
+}
 
+/* No `revalidate` here on purpose. This route reads `searchParams`, which makes
+   it dynamically rendered on every request — there is no static output for a
+   revalidation window to apply to, and the export that used to sit here read as
+   though the page were cached for an hour when nothing about it ever was. */
+
+const SHOW = 60
 const KINDS = ['member', 'committee', 'bill', 'sector'] as const
 
 function linkFor(r: { kind: string; key: string }) {
@@ -12,29 +21,56 @@ function linkFor(r: { kind: string; key: string }) {
   return `/sector/${r.key}`
 }
 
+/* `%` and `_` are wildcards to `ilike`, so a search for "50%" matched
+   everything containing "50". Escape them, and the backslash that escapes
+   them, before they reach the pattern. */
+const esc = (s: string) => s.replace(/[\\%_]/g, (c) => '\\' + c)
+
 export default async function Search({ searchParams }:
   { searchParams: Promise<{ q?: string; kind?: string }> }) {
   const sp = await searchParams
   const q = (sp.q || '').trim()
   const kind = KINDS.includes(sp.kind as any) ? sp.kind : ''
 
-  let results: any[] = []
-  if (q.length >= 2) {
-    let qy = db.from('search_index').select('*').ilike('title', `%${q}%`).limit(200)
-    if (kind) qy = qy.eq('kind', kind)
-    const { data } = await qy
-    results = data || []
-    const rank = { member: 0, sector: 1, bill: 2, committee: 3 } as Record<string, number>
-    results.sort((a, b) => {
-      const ax = a.title.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1
-      const bx = b.title.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1
-      return ax - bx || (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9) ||
-        Number(b.amount || 0) - Number(a.amount || 0)
-    })
-  }
+  /* C4. Every number on this page — the facet counts, "All N", "showing 60 of
+     N" — used to be derived by counting an unordered 200-row slice. Searching
+     "act" returned 200 arbitrary rows out of 1,268 real matches; because
+     PostgREST returned them in physical order and members happen to be stored
+     first, the Bill facet rendered "Bill · 0" against 1,071 actual bills, and
+     the filter it linked to then showed them. A count of a page is not a count.
 
+     Counts now come from the database. The rows shown come from two bounded
+     queries — titles that *start* with the term first, since that is what a
+     reader means by a good match, then titles that merely contain it. */
+  let results: any[] = []
   const counts: Record<string, number> = {}
-  for (const r of results) counts[r.kind] = (counts[r.kind] || 0) + 1
+  let matched = 0
+
+  if (q.length >= 2) {
+    const contains = `%${esc(q)}%`
+    const startsWith = `${esc(q)}%`
+    const only = (qy: any) => (kind ? qy.eq('kind', kind) : qy)
+
+    const [totalCount, kindCounts, { data: pre }, { data: rest }] = await Promise.all([
+      countRows('search_index', (qy: any) => only(qy).ilike('title', contains)),
+      Promise.all(KINDS.map(async (k) => [
+        k, await countRows('search_index', (qy: any) => qy.eq('kind', k).ilike('title', contains)),
+      ] as const)),
+      only(db.from('search_index').select('*').ilike('title', startsWith))
+        .order('amount', { ascending: false, nullsFirst: false }).order('title').limit(SHOW),
+      only(db.from('search_index').select('*').ilike('title', contains))
+        .not('title', 'ilike', startsWith)
+        .order('amount', { ascending: false, nullsFirst: false }).order('title').limit(SHOW),
+    ])
+
+    matched = totalCount
+    for (const [k, n] of kindCounts) counts[k] = n
+
+    const rank = { member: 0, sector: 1, bill: 2, committee: 3 } as Record<string, number>
+    const byRank = (a: any, b: any) =>
+      (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9) || Number(b.amount || 0) - Number(a.amount || 0)
+    results = [...(pre || []).sort(byRank), ...(rest || []).sort(byRank)].slice(0, SHOW)
+  }
 
   return (
     <div className="wrap">
@@ -58,7 +94,8 @@ export default async function Search({ searchParams }:
         <>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '18px 0' }}>
             <Link className={`badge ${kind ? 'b-low' : 'b-some'}`}
-              href={`/search?q=${encodeURIComponent(q)}`}>All {results.length}</Link>
+              href={`/search?q=${encodeURIComponent(q)}`}>
+              All {Object.values(counts).reduce((a, n) => a + n, 0).toLocaleString()}</Link>
             {KINDS.map(k => (
               <Link key={k} className={`badge ${kind === k ? 'b-some' : 'b-low'}`}
                 href={`/search?q=${encodeURIComponent(q)}&kind=${k}`}>
@@ -68,7 +105,7 @@ export default async function Search({ searchParams }:
           </div>
 
           <div className="grid g3">
-            {results.slice(0, 60).map(r => (
+            {results.map(r => (
               <Link key={r.kind + r.key} href={linkFor(r)} className="card"
                 style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>
                 <span className="badge b-low">{ENTITY_LABEL[r.kind]}</span>
@@ -86,7 +123,7 @@ export default async function Search({ searchParams }:
             ))}
           </div>
 
-          {results.length === 0 && (
+          {matched === 0 && (
             <div className="card">
               <h3>Nothing matched &ldquo;{q}&rdquo;</h3>
               <p className="small" style={{ marginBottom: 0 }}>
@@ -97,9 +134,10 @@ export default async function Search({ searchParams }:
               </p>
             </div>
           )}
-          {results.length > 60 && (
+          {matched > results.length && (
             <div className="card small" style={{ marginTop: 14 }}>
-              Showing 60 of {results.length} matches. Narrow the search or filter by type above.
+              Showing {results.length} of {matched.toLocaleString()} matches, closest first.
+              Narrow the search or filter by type above.
             </div>
           )}
         </>

@@ -2,7 +2,13 @@
   "name": "civictrace",
   "version": "1.0.0",
   "private": true,
-  "scripts": { "dev": "next dev", "build": "next build", "start": "next start" },
+  "scripts": {
+    "dev": "next dev",
+    "build": "npm run check:bounds && next build",
+    "start": "next start",
+    "check:bounds": "node scripts/check-bounds.mjs",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "next": "15.5.22",

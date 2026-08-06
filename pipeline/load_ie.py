@@ -108,7 +108,26 @@ def main():
                 if prev:
                     superseded.add(prev)
 
-    kept = quarantined = skipped_amended = 0
+    # A 24-hour notice and the periodic report that later covers the same
+    # expenditure are two filings of one payment.
+    #
+    # FEC rules require a 24- or 48-hour report for independent expenditures
+    # close to an election, and the same expenditure then appears again on the
+    # spender's next quarterly or monthly report. `prev_file_num` does not link
+    # them — that field only chains amendments — so the amendment pass above
+    # cannot see it, and both copies were being counted. On a contested race
+    # near an election that inflates the outside-spending figure on a member's
+    # page by the size of the late-campaign spending, which is the part readers
+    # care most about.
+    #
+    # The transaction identity is the spender, the candidate, the date, the
+    # amount and the support/oppose flag: two filings describing the same
+    # payment agree on all five. `tran_id` would be better but it is not
+    # populated consistently across form types in this file, so it is used when
+    # both copies have one and the tuple is the fallback rather than the other
+    # way round.
+    seen = {}
+    kept = quarantined = skipped_amended = skipped_dup = 0
     with open(src, newline="", encoding="utf-8", errors="replace") as f:
         for r in csv.DictReader(f):
             bio = wi.get((r.get("cand_id") or "").strip())
@@ -117,6 +136,14 @@ def main():
             if (r.get("file_num") or "").strip() in superseded:
                 skipped_amended += 1
                 continue
+            ident = ((r.get("spe_id") or "").strip(), (r.get("cand_id") or "").strip(),
+                     iso(r.get("exp_date")), (r.get("exp_amo") or "").strip(),
+                     (r.get("sup_opp") or "").strip().upper(),
+                     (r.get("tran_id") or "").strip())
+            if ident in seen:
+                skipped_dup += 1
+                continue
+            seen[ident] = True
             try:
                 amt = float(r.get("exp_amo") or 0)
             except ValueError:
@@ -142,7 +169,8 @@ def main():
                        FROM independent_expenditure WHERE quarantined=0
                        GROUP BY 1 ORDER BY 3 DESC""").fetchall()
     print(f"independent expenditures targeting WI: {kept} filings kept, "
-          f"{skipped_amended} superseded by amendment, {quarantined} quarantined")
+          f"{skipped_amended} superseded by amendment, {skipped_dup} duplicate reports of the "
+          f"same expenditure (24-hour notice and periodic report), {quarantined} quarantined")
     for so, n, amt in tot:
         print(f"  {'supporting' if so == 'S' else 'opposing' if so == 'O' else so or '(blank)':12} "
               f"{n:4} filings   ${amt:,.2f}")

@@ -20,7 +20,11 @@ KEY = os.environ.get("SUPABASE_ANON_KEY",
                      "sb_publishable_962AMHB-5EccIqag-UyHEQ_hl5Rd4_V")
 
 
+# Keep in step with ORDER in export_json.py and LABELS in web/lib/db.ts. The
+# partition check below is what catches them drifting apart: a label the site
+# does not list would make the per-label counts stop summing to the total.
 LABELS = ["Crossed party, one-sided industry money",
+          "Crossed party, industry money present",
           "Contested vote, one-sided industry money",
           "Contested vote, industry money present",
           "Party-line vote — low signal", "Near-unanimous vote — no signal"]
@@ -55,6 +59,27 @@ def count_of(path):
     if "/" not in rng:
         raise RuntimeError(f"no row count returned for {path}")
     return int(rng.rsplit("/", 1)[-1])
+
+
+def rows_all(path):
+    """Every row at `path`, paged until the source is dry.
+
+    Two reads in this file still called `q()` bare and used the result as if it
+    were complete — the sector list and each sector's member list. Both are
+    under a page today, which is exactly the condition that makes the bug
+    invisible until it isn't: this file exists to catch silent truncation and
+    two of its own assertions were computed on possibly-truncated collections.
+    """
+    out, offset, expected = [], 0, count_of(path)
+    while offset < expected:
+        rows, _ = q(path, {"Range": f"{offset}-{offset + PAGE - 1}"}, want_range=True)
+        if not rows:
+            raise RuntimeError(f"{path}: paging stalled at {offset} of {expected}")
+        out.extend(rows)
+        offset += len(rows)
+    if len(out) != expected:
+        raise RuntimeError(f"{path}: walked {len(out)} rows, expected {expected}")
+    return out
 
 
 def sum_all(path, field):
@@ -104,19 +129,23 @@ def main():
 
     # Sector subtotals must add up to the same grand total, and each sector's own
     # member count must match what its detail page derives.
-    secs = q(f"sector_profile?select=sector,sector_slug,total_to_wi,members_supported&cycle=eq.{cyc}")
+    secs = rows_all(f"sector_profile?select=sector,sector_slug,total_to_wi,members_supported"
+                    f"&cycle=eq.{cyc}")
     ssum = round(sum(float(s["total_to_wi"]) for s in secs), 2)
     require("sector subtotals sum to the grand total",
             f"{ssum:.2f}" == f"{float(r['via_contrib']):.2f}",
             f"{ssum} vs {r['via_contrib']}")
 
+    # Every sector, and the count comes from Postgres rather than from len() of
+    # a response that may have been capped.
     mism = []
     for s in secs:
-        rows = q("sector_members?select=bioguide&cycle=eq.%d&sector_slug=eq.%s"
-                 % (cyc, urllib.parse.quote(s["sector_slug"])))
-        if len(rows) != s["members_supported"]:
-            mism.append(f"{s['sector']}: profile {s['members_supported']} vs detail {len(rows)}")
-    require("each sector's member count matches its detail page", not mism, "; ".join(mism[:4]))
+        n = count_of("sector_members?select=bioguide&cycle=eq.%d&sector_slug=eq.%s"
+                     % (cyc, urllib.parse.quote(s["sector_slug"])))
+        if n != s["members_supported"]:
+            mism.append(f"{s['sector']}: profile {s['members_supported']} vs detail {n}")
+    require(f"each of the {len(secs)} sectors' member counts match their detail pages",
+            not mism, "; ".join(mism[:4]))
 
     # Nothing published may be scoped to another cycle.
     #
@@ -153,6 +182,39 @@ def main():
     require("trail labels partition the trail total",
             sum(per_label.values()) == n_trails,
             f"labels sum to {sum(per_label.values())} vs {n_trails} trails: {per_label}")
+
+    # Every dimension of individual_agg must add to that member's 'all' row, or
+    # a member page shows a breakdown that does not match the total above it.
+    # The loader asserts this against SQLite; this asserts it against what was
+    # actually published, which is the number a reader sees.
+    ind = rows_all(f"individual_agg?select=bioguide,dimension,total&cycle=eq.{cyc}")
+    per_member = {}
+    for row in ind:
+        per_member.setdefault(row["bioguide"], {}).setdefault(row["dimension"], 0.0)
+        per_member[row["bioguide"]][row["dimension"]] += float(row["total"] or 0)
+    off = []
+    for bio, dims in per_member.items():
+        target = dims.get("all")
+        if target is None:
+            continue
+        for dim, got in dims.items():
+            if dim != "all" and abs(got - target) > 0.5:
+                off.append(f"{bio}/{dim}: {got:,.2f} vs {target:,.2f}")
+    require(f"individual money reconciles across all {len(per_member)} members' breakdowns",
+            not off, "; ".join(off[:4]))
+
+    # Lobbying is published as a floor that fills in over successive runs, so it
+    # is not checked for completeness — but a coverage row that claims more
+    # bill-naming activities than activities is arithmetic, not incompleteness.
+    cov = rows_all("lobbying_coverage?select=*")
+    bad_cov = [f"{c['year']}: {c['activities_citing_bill']} of {c['activities']}"
+               for c in cov if (c["activities"] or 0) < (c["activities_citing_bill"] or 0)]
+    require("lobbying coverage is arithmetically possible", not bad_cov, "; ".join(bad_cov))
+    for c in cov:
+        pct = 100.0 * (c["activities_citing_bill"] or 0) / (c["activities"] or 1)
+        print(f"         lobbying {c['year']}: {c['filings_scanned']:,} filings scanned, "
+              f"{pct:.1f}% of activities name a bill"
+              f"{'' if c['complete'] else ' (pass still in progress)'}")
 
     print()
     if failures:

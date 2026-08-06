@@ -155,14 +155,59 @@ def pull_sources():
     return got
 
 
-def run(step, *argv):
+def run(step, *argv, env=None):
     log(f"→ {step}")
-    r = subprocess.run([sys.executable, *argv], cwd=HERE, capture_output=True, text=True, timeout=5400)
+    r = subprocess.run([sys.executable, *argv], cwd=HERE, capture_output=True, text=True,
+                       timeout=5400, env={**os.environ, **(env or {})})
     tail = (r.stdout or "").strip().splitlines()[-4:]
     for line in tail:
         log("   " + line)
     if r.returncode != 0:
         raise RuntimeError(f"{step} failed rc={r.returncode}: {(r.stderr or '')[-1200:]}")
+
+
+# ----------------------------------------------------------------- the clock
+#
+# H13. The workflow gives this job 60 minutes and the publish is not atomic: it
+# replaces nineteen tables one RPC at a time. A run killed by the CI timeout
+# partway through leaves the site with some tables refreshed and some not, no
+# error recorded, and no way to tell from the outside. The previous design had
+# nothing watching the clock — the LDA fetch alone is allowed 900 seconds and
+# every fetch above it is unbounded, so a slow morning at the FEC could walk the
+# job into the timeout with the swap half done.
+#
+# So the run keeps a budget and reserves the end of it for publishing. Fetch
+# steps that the site can survive without are skipped, loudly, when the reserve
+# is at risk — and a skipped loader's table is left alone rather than replaced
+# with the empty export it would otherwise produce.
+BUDGET = float(os.environ.get("CT_BUDGET_MINUTES", "42")) * 60
+RESERVE = float(os.environ.get("CT_PUBLISH_RESERVE_MINUTES", "12")) * 60
+STARTED = time.time()
+SKIPPED_TABLES = set()
+SKIPPED_STEPS = []
+
+
+def remaining():
+    return BUDGET - (time.time() - STARTED)
+
+
+def optional(step, script, tables, env=None):
+    """A fetch the site degrades without rather than breaks without.
+
+    `tables` are the published tables this step feeds. If it is skipped they are
+    dropped from the publish list, so yesterday's rows stay up. Publishing the
+    empty export instead would be a silent deletion — and `guard_against_shrink`
+    would then fail the whole refresh over a step that was only ever optional.
+    """
+    left = remaining()
+    if left < RESERVE:
+        log(f"⤼ skipping {step} — {left/60:.0f} min left of a {BUDGET/60:.0f} min budget and "
+            f"publishing is reserved {RESERVE/60:.0f}. Currently published rows for "
+            f"{', '.join(tables)} stay up untouched.")
+        SKIPPED_TABLES.update(tables)
+        SKIPPED_STEPS.append(step)
+        return
+    run(step, script, env=env)
 
 
 # ---------------------------------------------------------------- publishing
@@ -193,13 +238,19 @@ LOAD = [
     ("16_individual.individual_agg",     "individual_agg",     300, True),
     ("17_lobby_issue.lobbying_issue",    "lobbying_issue",     100, True),
     ("17b_lobby_bill.lobbying_bill",     "lobbying_bill",      150, True),
+    ("17c_lobby_cov.lobbying_coverage",  "lobbying_coverage",   50, True),
 ]
+
+
+def load_plan():
+    """LOAD minus anything whose loader was skipped this run."""
+    return [row for row in LOAD if row[1] not in SKIPPED_TABLES]
 
 
 def published_counts():
     """Row counts currently live, so a refresh can be compared against them."""
     out = {}
-    for _, table, _, _ in LOAD:
+    for _, table, _, _ in load_plan():
         req = urllib.request.Request(
             f"{URL}/rest/v1/{table}?select=*&limit=1",
             headers={"apikey": KEY, "Authorization": f"Bearer {KEY}",
@@ -213,6 +264,21 @@ def published_counts():
                 raise RuntimeError(f"no row count returned for {table}")
             out[table] = int(rng.rsplit("/", 1)[-1])
     return out
+
+
+# Tables that are a floor rather than a snapshot.
+#
+# The LDA loader walks 55,003 filings 25 at a time against a rate limit, so it
+# takes several runs to complete a pass and starts a new one when it finishes.
+# Mid-pass it legitimately holds fewer rows than the last completed pass did,
+# which is a shrink under any percentage tolerance and is not a fault. Guarding
+# these at the ordinary threshold would fail a refresh every few days for the
+# one source that is documented as incomplete.
+#
+# They are not unguarded. Going from "some" to "none" is still a failure — that
+# is the shape of a loader that ran and produced nothing, which is the thing
+# worth catching here.
+PARTIAL = {"lobbying_issue", "lobbying_bill", "lobbying_coverage"}
 
 
 def guard_against_shrink(before, rows_by_table, tolerance=0.05):
@@ -239,6 +305,13 @@ def guard_against_shrink(before, rows_by_table, tolerance=0.05):
     shrunk, waived = [], []
     for table, n_new in rows_by_table.items():
         n_old = before.get(table, 0)
+        if table in PARTIAL:
+            if n_old and n_new == 0:
+                shrunk.append(f"{table}: {n_old} published, refresh produced nothing at all")
+            elif n_old and n_new < n_old:
+                log(f"   {table}: {n_new} rows against {n_old} published — mid-pass on a "
+                    f"source that rebuilds incrementally, not a shrink")
+            continue
         if n_old and n_new < n_old * (1 - tolerance):
             msg = f"{table}: {n_old} published, refresh produced {n_new}"
             (waived if table in allowed else shrunk).append(msg)
@@ -329,13 +402,17 @@ def publish():
                 "timing_contributions": json.loads(r["timing_contributions"]),
             }
 
+    plan = load_plan()
+    if SKIPPED_TABLES:
+        log(f"   not publishing {', '.join(sorted(SKIPPED_TABLES))} — their loaders were "
+            f"skipped this run and the live rows are left as they are")
     before = published_counts()
     fresh = {table: len(json.loads((SQLD / f"{stem}.json").read_text()))
-             for stem, table, _, _ in LOAD}
+             for stem, table, _, _ in plan}
     guard_against_shrink(before, fresh)
 
     counts = {}
-    for stem, table, batch, replace in LOAD:
+    for stem, table, batch, replace in plan:
         rows = json.loads((SQLD / f"{stem}.json").read_text())
         if table == "money_trail":
             missing = 0
@@ -387,17 +464,28 @@ def main():
         # them feed a trail or a total; they exist so the site can say how much
         # of the money each figure covers, and whether the member sits on the
         # committee that writes the bills in question.
-        run("committee assignments", "load_committees.py")
-        run("independent expenditures", "load_ie.py")
-        run("candidate totals (openFEC)", "fetch_totals.py")
+        optional("committee assignments", "load_committees.py", ["committee_assignment"])
+        optional("independent expenditures", "load_ie.py",
+                 ["independent_expenditure", "ie_agg"])
+        optional("candidate totals (openFEC)", "fetch_totals.py", ["candidate_totals"])
         # 2 GB of itemized individual contributions, streamed and aggregated.
         # Conditional download, so most days this is one 304.
-        run("individual contributions", "load_individuals.py")
+        optional("individual contributions", "load_individuals.py", ["individual_agg"])
         # LDA is resumable and deliberately time-boxed: a full year is ~2,200
-        # requests against a 15/min anonymous limit. Each run continues from a
-        # checkpoint, so the data fills in over several days rather than
-        # blocking one refresh for three hours.
-        run("lobbying disclosures", "load_lobbying.py")
+        # requests against a 15/min anonymous limit. Each run continues from
+        # saved state, so the data fills in over several days rather than
+        # blocking one refresh for three hours. Its deadline is whatever the
+        # budget has left after the publish reserve, never more.
+        lda_budget = max(60.0, remaining() - RESERVE)
+        optional("lobbying disclosures", "load_lobbying.py",
+                 ["lobbying_issue", "lobbying_bill", "lobbying_coverage"],
+                 env={"CT_LDA_DEADLINE": str(int(min(
+                     float(os.environ.get("CT_LDA_DEADLINE", "900")), lda_budget)))})
+        # The engine's own assertions, before anything derived from it is
+        # exported. These used to exist and run nowhere, which is the same as
+        # not existing: the labeller was rewritten twice with the tests passing
+        # on a machine nobody ran them on.
+        run("engine tests", "test_alignment.py")
         run("export", "export_json.py")
         run("timing provenance", "timing.py")
         # Gate BEFORE the swap, against the SQLite build, not after it against
@@ -412,9 +500,14 @@ def main():
         # data is fresh. Say plainly what it does and does not do.
         run("aggregation invariants (post-publish)", "check_reconciliation.py")
         counts["seconds"] = round(time.time() - t0)
+        note = "full rebuild from primary sources"
+        if SKIPPED_STEPS:
+            counts["skipped"] = SKIPPED_STEPS
+            note = ("rebuild from primary sources; ran out of budget before "
+                    + ", ".join(SKIPPED_STEPS)
+                    + " — those tables keep the rows from the last run that reached them")
         rpc("run_finish", {"p_token": TOKEN, "p_id": run_id, "p_status": "ok",
-                           "p_counts": counts, "p_note": "full rebuild from primary sources",
-                           "p_error": None})
+                           "p_counts": counts, "p_note": note, "p_error": None})
         log(f"run {run_id} ok in {counts['seconds']}s")
         return 0
     except Exception:

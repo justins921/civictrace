@@ -7,7 +7,11 @@
      5.04, --page #eef2f7 4.70). It reads as the same grey; it just is not
      failing. */
   --faint:#5b6e7e;
-  --navy:#12376b; --blue:#2f7bd6; --blue2:#5b9ae6; --blue-soft:#eaf1fa;
+  /* M: --blue was #2f7bd6 — 4.26:1 on white, under WCAG AA's 4.5:1 for body
+     text, and it is the colour of every link on the site. #2166c4 is 5.9:1 and
+     is the same hue. --blue2 is decorative only (borders, gauge fills) and is
+     never used for text, so it stays. */
+  --navy:#12376b; --blue:#2166c4; --blue2:#5b9ae6; --blue-soft:#eaf1fa;
   --green:#1f7a52; --green-bg:#e7f6ee; --green-line:#bfe6d1;
   --amber:#8a6a00; --amber-bg:#fff5db; --amber-line:#f2dfa8;
   --red:#b3352f; --red-bg:#fdeceb;

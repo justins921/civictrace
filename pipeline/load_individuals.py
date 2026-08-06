@@ -40,6 +40,7 @@ reason this ran as its own project rather than being bolted onto etl.py, which
 loads its inputs with readlines().
 """
 import csv
+import hashlib
 import io
 import os
 import sqlite3
@@ -72,9 +73,31 @@ IDX = {c: i for i, c in enumerate(COLS)}
 KEEP_TYPES = {"15", "15E"}
 
 # A single donor at a one-person employer is identifiable from the employer
-# alone. Below this many contributors, an employer or occupation is folded into
-# an "all smaller employers" line rather than published.
+# alone. Below this many *distinct donors*, an employer or occupation is folded
+# into an "all smaller employers" line rather than published.
+#
+# H6. This floor used to count contributions, not donors. One person giving
+# monthly to the same campaign is twelve contributions and one donor, so a
+# single identifiable individual at a named small employer cleared a
+# three-donor threshold four times over — which is precisely the disclosure the
+# threshold exists to prevent, and it was the anonymity guarantee this file's
+# own docstring makes.
+#
+# Donor identity is counted without being kept. A contributor is fingerprinted
+# to eight bytes from name, zip and city; the fingerprints live in memory for
+# the length of the run, are used only to size a set, and are never written
+# anywhere. Nothing downstream can invert them and nothing tries.
 MIN_DONORS = 3
+
+
+def donor_key(line):
+    """An opaque, non-reversible per-donor fingerprint. Never stored."""
+    ident = "|".join((
+        (line[IDX["NAME"]] or "").strip().upper(),
+        (line[IDX["ZIP_CODE"]] or "").strip()[:5],
+        (line[IDX["CITY"]] or "").strip().upper(),
+    ))
+    return hashlib.blake2b(ident.encode("utf-8", "replace"), digest_size=8).digest()
 
 BANDS = [(0, 200, "under $200"), (200, 1000, "$200–999"), (1000, 2900, "$1,000–2,899"),
          (2900, 10 ** 9, "$2,900 and up (at or near the per-election maximum)")]
@@ -180,11 +203,24 @@ def main():
 
     src = download()
 
-    by_employer = defaultdict(lambda: [0, 0.0])      # bioguide,employer -> [n, total]
-    by_occupation = defaultdict(lambda: [0, 0.0])
-    by_state = defaultdict(lambda: [0, 0.0])
-    by_band = defaultdict(lambda: [0, 0.0])
-    totals = defaultdict(lambda: [0, 0.0])
+    # H8. Amended filings.
+    #
+    # The FEC bulk file contains every filing, including the ones a later
+    # amendment superseded. A committee that amends a quarterly report to
+    # correct one address re-files the whole schedule, and both copies are in
+    # this file — so the transactions on it were being counted twice, and a
+    # committee that amended three times counted its money four times over. The
+    # affected members' individual totals were simply too high, by an amount
+    # that varied per member depending on how often their treasurer filed
+    # corrections. Nothing in the pipeline could have noticed: the breakdown
+    # still reconciled to the (inflated) total.
+    #
+    # A transaction keeps its TRAN_ID across amendments, so committee ID plus
+    # transaction ID identifies the transaction rather than the copy of it. Keep
+    # the copy from the highest FILE_NUM — the most recent filing to carry it.
+    # Rows with no TRAN_ID (older filings) fall back to SUB_ID, which is unique
+    # per row, so they are never merged with anything.
+    keep = {}                                        # (cmte, tran) -> (file_num, record)
     seen_types = Counter()
     rows = kept = 0
     t0 = time.time()
@@ -196,10 +232,12 @@ def main():
             for line in csv.reader(stream, delimiter="|", quoting=csv.QUOTE_NONE):
                 rows += 1
                 if rows % 5_000_000 == 0:
-                    print(f"    {rows:,} rows in {time.time()-t0:.0f}s, {kept:,} kept", flush=True)
+                    print(f"    {rows:,} rows in {time.time()-t0:.0f}s, {len(keep):,} kept",
+                          flush=True)
                 if len(line) <= IDX["SUB_ID"]:
                     continue
-                cand = cmte_to_cand.get(line[IDX["CMTE_ID"]])
+                cmte = line[IDX["CMTE_ID"]]
+                cand = cmte_to_cand.get(cmte)
                 if cand is None:
                     continue
                 tp = line[IDX["TRANSACTION_TP"]].strip()
@@ -216,49 +254,82 @@ def main():
                 if not bio:
                     continue
                 kept += 1
-                emp = norm_org(line[IDX["EMPLOYER"]])
-                occ = norm_org(line[IDX["OCCUPATION"]])
-                st = (line[IDX["STATE"]] or "").strip().upper() or "(none)"
-                for d, k in ((by_employer, (bio, emp)), (by_occupation, (bio, occ)),
-                             (by_state, (bio, st)), (by_band, (bio, band(amt))),
-                             (totals, (bio, "ALL"))):
-                    d[k][0] += 1
-                    d[k][1] += amt
+                try:
+                    file_num = int(line[IDX["FILE_NUM"]] or 0)
+                except ValueError:
+                    file_num = 0
+                tran = (line[IDX["TRAN_ID"]] or "").strip() or f"sub:{line[IDX['SUB_ID']]}"
+                k = (cmte, tran)
+                prev = keep.get(k)
+                if prev is not None and prev[0] >= file_num:
+                    continue
+                keep[k] = (file_num, (
+                    bio, amt, norm_org(line[IDX["EMPLOYER"]]), norm_org(line[IDX["OCCUPATION"]]),
+                    (line[IDX["STATE"]] or "").strip().upper() or "(none)", donor_key(line)))
 
+    superseded = kept - len(keep)
     print(f"  read {rows:,} rows in {time.time()-t0:.0f}s; {kept:,} were individual "
           f"contributions to a Wisconsin committee")
+    print(f"  {superseded:,} of those were superseded copies from amended filings "
+          f"({100.0*superseded/kept if kept else 0:.1f}%) and are counted once, not twice")
     print(f"  transaction types seen on those committees: "
           f"{dict(seen_types.most_common(6))}")
+
+    # Aggregate the surviving copy of each transaction. `donors` is a set of
+    # opaque fingerprints, sized and then discarded.
+    def bucket():
+        return [0, 0.0, set()]                        # [contributions, total, donor keys]
+
+    by_employer = defaultdict(bucket)
+    by_occupation = defaultdict(bucket)
+    by_state = defaultdict(bucket)
+    by_band = defaultdict(bucket)
+    totals = defaultdict(bucket)
+
+    for _, (bio, amt, emp, occ, st, who) in keep.values():
+        for d, k in ((by_employer, (bio, emp)), (by_occupation, (bio, occ)),
+                     (by_state, (bio, st)), (by_band, (bio, band(amt))),
+                     (totals, (bio, "ALL"))):
+            d[k][0] += 1
+            d[k][1] += amt
+            d[k][2].add(who)
 
     c.executescript("""
     DROP TABLE IF EXISTS individual_agg;
     CREATE TABLE individual_agg (
       bioguide TEXT, cycle INTEGER, dimension TEXT, key TEXT,
-      donations INTEGER, total REAL,
+      donations INTEGER, donors INTEGER, total REAL,
       PRIMARY KEY (bioguide, cycle, dimension, key));
     """)
 
     def store(dimension, data, apply_min):
-        """Write one dimension, folding anything below MIN_DONORS into a single
-        line. The folded line keeps its money — dropping it would make the
-        dimension stop adding up to the total, and a breakdown that does not
-        reconcile is how this project has gotten in trouble before."""
-        small = defaultdict(lambda: [0, 0.0, 0])
-        for (bio, key), (n, amt) in data.items():
-            if apply_min and n < MIN_DONORS:
+        """Write one dimension, folding anything below MIN_DONORS distinct
+        donors into a single line. The folded line keeps its money — dropping it
+        would make the dimension stop adding up to the total, and a breakdown
+        that does not reconcile is how this project has gotten in trouble
+        before.
+
+        Both counts are published because they answer different questions and
+        the page was printing one under the other's heading: "Donors" over a
+        column of contribution counts. Twelve monthly gifts from one person are
+        twelve contributions and one donor.
+        """
+        small = defaultdict(lambda: [0, 0.0, set(), 0])
+        for (bio, key), (n, amt, who) in data.items():
+            if apply_min and len(who) < MIN_DONORS:
                 small[bio][0] += n
                 small[bio][1] += amt
-                small[bio][2] += 1
+                small[bio][2] |= who
+                small[bio][3] += 1
                 continue
-            c.execute("INSERT OR REPLACE INTO individual_agg VALUES (?,?,?,?,?,?)",
-                      (bio, CYCLE, dimension, key, n, round(amt, 2)))
-        for bio, (n, amt, k) in small.items():
-            c.execute("INSERT OR REPLACE INTO individual_agg VALUES (?,?,?,?,?,?)",
+            c.execute("INSERT OR REPLACE INTO individual_agg VALUES (?,?,?,?,?,?,?)",
+                      (bio, CYCLE, dimension, key, n, len(who), round(amt, 2)))
+        for bio, (n, amt, who, k) in small.items():
+            noun = "employers" if dimension == "employer" else "occupations"
+            c.execute("INSERT OR REPLACE INTO individual_agg VALUES (?,?,?,?,?,?,?)",
                       (bio, CYCLE, dimension,
-                       f"(all employers with fewer than {MIN_DONORS} donors — {k:,} of them)"
-                       if dimension == "employer" else
-                       f"(all occupations with fewer than {MIN_DONORS} donors — {k:,} of them)",
-                       n, round(amt, 2)))
+                       f"(all {noun} with fewer than {MIN_DONORS} donors — {k:,} of them)",
+                       n, len(who), round(amt, 2)))
 
     store("employer", by_employer, True)
     store("occupation", by_occupation, True)

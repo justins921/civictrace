@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { db, partyLetter, officeLine, CYCLE } from '@/lib/db'
+import { db, partyLetter, officeLine, CYCLE, SITE_URL } from '@/lib/db'
 import { TrailView, type Trail } from '@/components/TrailView'
 import { Sleuth } from '@/components/Art'
 
@@ -9,6 +9,31 @@ export async function generateStaticParams() {
   const { data } = await db.from('money_trail').select('vote_key,bioguide').eq('cycle', CYCLE)
     .order('rank').limit(60)
   return (data || []).map((t: any) => ({ key: `${t.vote_key}--${t.bioguide}` }))
+}
+
+function splitKey(key: string) {
+  const k = decodeURIComponent(key)
+  const idx = k.lastIndexOf('--')
+  return idx < 0 ? null : { voteKey: k.slice(0, idx), bioguide: k.slice(idx + 2) }
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ key: string }> }) {
+  const parts = splitKey((await params).key)
+  if (!parts) return { title: 'Money trail — CivicTrace' }
+  const { data: rows } = await db.from('trail_full')
+    .select('full_name,label,bill_title,vote_desc,legis_num,position,iso_date')
+    .eq('vote_key', parts.voteKey).eq('bioguide', parts.bioguide).eq('cycle', CYCLE).limit(1)
+  const t = (rows || [])[0]
+  if (!t) return { title: 'Money trail — CivicTrace' }
+  const subject = t.bill_title || t.vote_desc || t.legis_num
+  const title = `${t.full_name} on ${t.legis_num} — CivicTrace`
+  const description =
+    `${t.full_name} voted ${t.position} on ${t.legis_num}${t.iso_date ? ` (${t.iso_date})` : ''}: `
+    + `${subject}. Classified "${t.label}". Overlap between filed contributions and a recorded `
+    + `vote — not an allegation of anything.`
+  const url = `${SITE_URL}/trail/${encodeURIComponent(parts.voteKey)}--${parts.bioguide}`
+  return { title, description, alternates: { canonical: url },
+           openGraph: { title, description, url } }
 }
 
 export default async function TrailPage({ params }: { params: Promise<{ key: string }> }) {
