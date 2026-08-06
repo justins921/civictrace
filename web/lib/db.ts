@@ -13,6 +13,32 @@ export const db = createClient(url, key, {
   auth: { persistSession: false },
 })
 
+/* H1. The corrections form writes through a SECURITY DEFINER function, and
+   EXECUTE on it is (for now) granted to `anon` — the role behind the key above,
+   which ships in the browser bundle. So the report queue is writable by anyone
+   who can POST, honeypot or no honeypot.
+
+   The fix has two halves and they land in either order safely. This is the code
+   half: when SUPABASE_SERVICE_ROLE_KEY is set — server-side only, no
+   NEXT_PUBLIC_ prefix, never bundled — writes go through a privileged client
+   and the grant to `anon` can be revoked. Until it is set, this returns the
+   ordinary client and the form keeps working exactly as it does today.
+
+   Server-only by construction: importing this into a client component would
+   fail the build, because `db` is what components import and this is not it. */
+export function writeClient() {
+  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!secret) return db
+  return createClient(url, secret, {
+    db: { schema: 'civictrace' },
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+}
+
+/** True when the privileged path is live — the contact form logs this so a
+ *  missing environment variable is visible rather than silently degrading. */
+export const hasWriteKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY)
+
 export const money = (n: number | null | undefined) =>
   '$' + Math.round(Number(n || 0)).toLocaleString('en-US')
 

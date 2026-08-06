@@ -1,6 +1,6 @@
 'use server'
 
-import { db } from '@/lib/db'
+import { writeClient, hasWriteKey } from '@/lib/db'
 
 // One flat shape rather than a discriminated union: this project compiles with
 // `strict: false`, and without strictNullChecks TypeScript will not narrow a
@@ -30,7 +30,10 @@ export async function fileReport(fd: FormData): Promise<Result> {
     return { ok: false, ref: '', message: 'Please describe what is wrong — that field is the report.' }
   }
 
-  const { data, error } = await db.rpc('file_report', {
+  // Privileged client when the service key is configured, ordinary client when
+  // it is not. See lib/db.ts — this is what lets `anon` lose EXECUTE on
+  // file_report without the form going down in between.
+  const { data, error } = await writeClient().rpc('file_report', {
     p_category: s('category'),
     p_page_url: s('page_url'),
     p_figure: s('figure'),
@@ -42,6 +45,11 @@ export async function fileReport(fd: FormData): Promise<Result> {
   })
 
   if (error || !data) {
+    if (!hasWriteKey) {
+      console.warn('[contact] SUPABASE_SERVICE_ROLE_KEY is not set — reports are ' +
+                   'being filed with the publishable key, which means anon still ' +
+                   'holds EXECUTE on file_report. See H1-revoke-file-report.sql.')
+    }
     // Surface the database's own message when it is one written for a human
     // (bad email, too long, throttled) and a neutral one otherwise. A reporter
     // who hits a wall and gets no explanation simply does not report again.
