@@ -86,14 +86,14 @@ export default async function Bills() {
                   <BillArt size={52} />
                   <div style={{ minWidth: 0 }}>
                     <div className="eyebrow">{num(b)}</div>
-                    <h3 className="clamp3" style={{ margin: '2px 0 0', fontSize: 15 }}
+                    <h3 className="clamp3 title3" style={{ margin: '2px 0 0', fontSize: 15 }}
                       title={b.title}>{b.title}</h3>
                   </div>
                 </div>
                 <div className="rule" />
                 <div className="stat"><span>Policy area</span><b>{b.policy_area || '—'}</b></div>
                 <div className="stat"><span>Trails</span><b>{b.trail_count}</b></div>
-                <div className="tiny" style={{ marginTop: 8 }}>
+                <div className="tiny card-foot">
                   {(sectorsFor[b.bill_key] || []).join(' · ') || 'no industry match'}
                 </div>
               </Link>

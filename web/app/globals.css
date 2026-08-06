@@ -49,14 +49,24 @@ a:hover{text-decoration:underline}
 
 /* ---------- generic ---------- */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px;box-shadow:var(--shadow)}
-.grid{display:grid;gap:16px;align-items:start}
-/* align-items:start matters more than it looks. Without it every card in a row
-   stretches to the tallest one, so a single bill whose GovInfo "title" is the
-   full 1,000-character text of a procedural resolution left three neighbouring
-   cards mostly empty. */
+.grid{display:grid;gap:16px}
+
+/* Cards in a row are the same height, and the things inside them line up.
+   Equal height is only safe because titles are clamped below — the original
+   bug was an unclamped 1,000-character bill title dragging a whole row with
+   it. Clamp first, then stretch: without the clamp this rule is the bug, and
+   without the stretch the row looks ragged. Both, or neither. */
+.grid>.card{display:flex;flex-direction:column}
+.grid>.card>:last-child{margin-bottom:0}
+/* pins footers to the bottom edge so they align across a row */
+.card-foot{margin-top:auto;padding-top:8px}
+/* reserve the clamped height so dividers line up even when a title is short */
+.title3{min-height:calc(3 * 1.32em)}
+.title2{min-height:calc(2 * 1.32em)}
 
 /* Clamp long titles in card grids. The full text is always on the item's own
    page — a directory card is a signpost, not the document. */
+.clamp2,.clamp3,.clamp4{line-height:1.32}
 .clamp2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
   line-clamp:2;overflow:hidden}
 .clamp3{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;
