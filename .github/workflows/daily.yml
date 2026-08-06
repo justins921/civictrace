@@ -101,8 +101,36 @@ jobs:
           # cache above, resumable in a way that actually survives to tomorrow.
           LDA_API_KEY: ${{ secrets.LDA_API_KEY }}
           CT_SOURCE: github actions
-          CT_BUDGET_MINUTES: '42'
+          # With LDA_API_KEY set, the rate limit goes from 15 requests a
+          # minute to 120, and a full pass over the year's 55,003 filings is
+          # about 2,200 requests — roughly 20 minutes rather than two and a
+          # half hours. That is now reachable inside one run, so the budget is
+          # set to let it finish instead of clamping it at 15 minutes and
+          # leaving a partial pass on the site until tomorrow.
+          #
+          # The three numbers are: stop fetching at 55 minutes, keep the last
+          # 12 for publishing, hard kill at 75. The gap between the second and
+          # third is the margin that keeps a non-atomic publish from being cut
+          # in half by CI.
+          CT_BUDGET_MINUTES: '55'
           CT_PUBLISH_RESERVE_MINUTES: '12'
+          CT_LDA_DEADLINE: '1500'
+      # The cache's post-step errors out if none of its paths exist, and on the
+      # very first run — or a run where both of those loaders were skipped for
+      # budget — neither does. That would mark a job failed after a perfectly
+      # good publish, which is the most confusing kind of red X. Create them
+      # empty-but-valid if they are missing.
+      #
+      # `always()`, so a run that failed halfway still saves whatever LDA
+      # progress it made. Losing 40 minutes of paging because the Clerk timed
+      # out on an unrelated step is the thing this cache exists to prevent.
+      - name: make sure the cached state files exist
+        if: always()
+        run: |
+          mkdir -p data
+          [ -s data/lda_state.json ] || echo '{"years":{}}' > data/lda_state.json
+          [ -s data/candidate_totals.json ] || echo '{}' > data/candidate_totals.json
+
       # Blocks a bad refresh from standing: if any two routes to a published
       # total disagree, this fails and the run is marked failed.
       - run: python check_reconciliation.py
