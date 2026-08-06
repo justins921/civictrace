@@ -18,20 +18,75 @@
 -- Next.js server action, so it can call the function with a service key that
 -- never reaches a browser.
 --
--- AFTER RUNNING IT, THE FORM WILL 403 UNTIL YOU DO STEP 2. Do both in one
--- sitting, or do step 2 first.
+-- This file is split into 1a (safe, additive, run any time) and 1b (the
+-- irreversible half). Run 1a, do step 2, test the form, then run 1b.
 
 -- ---------------------------------------------------------------- step 1: SQL
+
+-- ORDER MATTERS, AND SO DOES THE SCHEMA GRANT.
+--
+-- The first version of this file granted EXECUTE and stopped there, and the
+-- chat instructions that went with it said to set the Vercel variable first and
+-- run the SQL second. Both were wrong, and together they took the form down:
+--
+--   * Setting SUPABASE_SERVICE_ROLE_KEY switches writeClient() to the
+--     service_role role immediately. If that role cannot call the function yet,
+--     the form breaks the moment the variable exists — before any revoke.
+--   * EXECUTE on a function is necessary and NOT sufficient. Postgres checks
+--     USAGE on the containing schema first. `anon` has always had USAGE on
+--     civictrace, which is how the site reads; `service_role` never had it,
+--     because nothing had ever connected as it. Granting EXECUTE alone left the
+--     call failing one step earlier, with a permission error that names the
+--     schema, not the function.
+--
+-- So: grant everything service_role needs, in one transaction, BEFORE revoking
+-- anything. Then confirm the form works. Then revoke.
+
+-- ------------------------------------------------- step 1a: let service_role in
+
+begin;
+
+grant usage on schema civictrace to service_role;
+
+grant execute on function civictrace.file_report(
+  text, text, text, text, text, text, text, boolean
+) to service_role;
+
+commit;
+
+-- Prove it before removing the fallback. This executes the function AS
+-- service_role and rolls the row back, so it tests the real permission path
+-- without leaving anything in the queue.
+begin;
+do $$
+declare v text;
+begin
+  set local role service_role;
+  select civictrace.file_report('Methodology concerns', null, null,
+    'permission probe', null, null, null, false) into v;
+  reset role;
+  raise notice 'service_role executed file_report, ref=%', v;
+end $$;
+rollback;
+
+-- Both must be true before continuing.
+select has_schema_privilege('service_role', 'civictrace', 'USAGE')  as schema_usage,
+       has_function_privilege('service_role',
+         'civictrace.file_report(text,text,text,text,text,text,text,boolean)',
+         'EXECUTE') as fn_execute;
+
+-- STOP HERE. Set SUPABASE_SERVICE_ROLE_KEY in Vercel (step 2 below), redeploy,
+-- and file a real test report at /contact. Only when that returns a reference
+-- code should you run step 1b — until then `anon` is the working fallback and
+-- removing it is what makes this irreversible.
+
+-- ------------------------------------------- step 1b: close the public door
 
 begin;
 
 revoke execute on function civictrace.file_report(
   text, text, text, text, text, text, text, boolean
 ) from anon, authenticated, public;
-
-grant execute on function civictrace.file_report(
-  text, text, text, text, text, text, text, boolean
-) to service_role;
 
 commit;
 
