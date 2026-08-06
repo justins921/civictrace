@@ -128,7 +128,8 @@ export default async function Trails({ searchParams }:
               <span className={`badge ${labelClass(t.label).badge}`}>{t.label}</span>
               <Gauge angle={labelClass(t.label).angle} size={62} />
             </div>
-            <h3 style={{ marginTop: 8, fontSize: 15.5 }}>{t.bill_title || t.vote_desc}</h3>
+            <h3 className="clamp3" style={{ marginTop: 8, fontSize: 15.5 }}
+              title={t.bill_title || t.vote_desc}>{t.bill_title || t.vote_desc}</h3>
             <div className="small" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span className={`chip ${partyLetter(t.party)}`}>{partyLetter(t.party)}</span>
               {t.full_name} voted{' '}
@@ -136,7 +137,7 @@ export default async function Trails({ searchParams }:
             </div>
             <div className="rule" />
             <div className="stat">
-              <span>{(t.sectors || []).map((s: any) => s.sector).join(', ')}</span>
+              <span className="clamp2">{(t.sectors || []).map((s: any) => s.sector).join(', ')}</span>
               <b>{money(t.sector_dollars)}</b></div>
             <div className="stat"><span>Share of their PAC money</span><b>{t.sector_share_pct}%</b></div>
             <div className="stat"><span>Own party voted the same</span>

@@ -97,7 +97,8 @@ export default async function Home() {
             <Link key={t.vote_key + t.bioguide} href={trailHref(t)} className="card"
               style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>
               <span className={`badge ${labelClass(t.label).badge}`}>{t.label}</span>
-              <h3 style={{ marginTop: 12 }}>{t.bill_title || t.vote_desc}</h3>
+              <h3 className="clamp3" style={{ marginTop: 12 }}
+                title={t.bill_title || t.vote_desc}>{t.bill_title || t.vote_desc}</h3>
               <div className="small" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 <span className={`chip ${partyLetter(t.party)}`}>{partyLetter(t.party)}</span>
                 {t.full_name} voted <strong>{t.position}</strong> on {t.legis_num}

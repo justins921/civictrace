@@ -11,6 +11,11 @@ import React from 'react'
 
 type P = { size?: number }
 
+/* Every illustration carries flex:'none'. They sit beside text in flex rows all
+   over the site, and without it a long neighbouring title squeezes the drawing
+   to zero width — which is exactly what happened to the bill card whose title
+   was the full text of a procedural resolution. */
+
 const NAVY = '#12376b'
 const BLUE = '#2f7bd6'
 const SKYB = '#5b9ae6'
@@ -28,7 +33,8 @@ const STONE = '#8fa2b8'
 function Scene({ size = 96, sky = PALE, ground = '#dbe7f4', children }:
   P & { sky?: string; ground?: string; children: React.ReactNode }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 96 96" aria-hidden role="presentation">
+    <svg width={size} height={size} viewBox="0 0 96 96" aria-hidden role="presentation"
+      style={{ flex: 'none' }}>
       <rect x="0" y="0" width="96" height="96" rx="12" fill={sky} />
       <path d="M0 64h96v20a12 12 0 0 1-12 12H12A12 12 0 0 1 0 84z" fill={ground} />
       {children}
@@ -42,7 +48,8 @@ function Scene({ size = 96, sky = PALE, ground = '#dbe7f4', children }:
 
 export function Logo({ size = 34 }: P) {
   return (
-    <svg width={size} height={size} viewBox="0 0 44 44" fill="none" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 44 44" fill="none" aria-hidden
+      style={{ flex: 'none' }}>
       {/* a capitol dome read through a magnifier — the whole product in one mark */}
       <circle cx="19" cy="19" r="13.5" fill="#fff" stroke={NAVY} strokeWidth="3.4" />
       <path d="M19 10.6a7.2 7.6 0 0 1 7.2 7.6H11.8A7.2 7.6 0 0 1 19 10.6z" fill={BLUE} />
@@ -65,7 +72,8 @@ export function Logo({ size = 34 }: P) {
 
 export function Sleuth({ size = 96 }: P) {
   return (
-    <svg width={size} height={size} viewBox="0 0 96 96" aria-hidden role="presentation">
+    <svg width={size} height={size} viewBox="0 0 96 96" aria-hidden role="presentation"
+      style={{ flex: 'none' }}>
       <circle cx="48" cy="48" r="46" fill="#f2f7fd" stroke={EDGE} strokeWidth="1.5" />
 
       {/* coat + collar */}
@@ -482,7 +490,8 @@ export function BillArt({ size = 96 }: P) {
    there is no lobbyist icon — we do not put a door on an empty room. */
 
 const NavFrame = ({ children, size = 26 }: P & { children: React.ReactNode }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden role="presentation">{children}</svg>
+  <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden role="presentation"
+    style={{ flex: 'none' }}>{children}</svg>
 )
 
 export function IconPolitician({ size = 26 }: P) {

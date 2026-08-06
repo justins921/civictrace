@@ -193,7 +193,8 @@ export default async function Committee({ params }: { params: Promise<{ id: stri
               <Link key={t.vote_key + t.bioguide} href={trailHref(t)} className="card"
                 style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>
                 <span className={`badge ${labelClass(t.label).badge}`}>{t.label}</span>
-                <h3 style={{ marginTop: 10, fontSize: 15.5 }}>{t.bill_title || t.vote_desc}</h3>
+                <h3 className="clamp3" style={{ marginTop: 10, fontSize: 15.5 }}
+                  title={t.bill_title || t.vote_desc}>{t.bill_title || t.vote_desc}</h3>
                 <div className="small">
                   {t.full_name} voted <strong>{t.position}</strong> on {t.legis_num}
                 </div>

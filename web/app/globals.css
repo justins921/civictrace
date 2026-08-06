@@ -49,7 +49,20 @@ a:hover{text-decoration:underline}
 
 /* ---------- generic ---------- */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px;box-shadow:var(--shadow)}
-.grid{display:grid;gap:16px}
+.grid{display:grid;gap:16px;align-items:start}
+/* align-items:start matters more than it looks. Without it every card in a row
+   stretches to the tallest one, so a single bill whose GovInfo "title" is the
+   full 1,000-character text of a procedural resolution left three neighbouring
+   cards mostly empty. */
+
+/* Clamp long titles in card grids. The full text is always on the item's own
+   page — a directory card is a signpost, not the document. */
+.clamp2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+  line-clamp:2;overflow:hidden}
+.clamp3{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;
+  line-clamp:3;overflow:hidden}
+.clamp4{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;
+  line-clamp:4;overflow:hidden}
 .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
 .g3{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
 .g4{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}

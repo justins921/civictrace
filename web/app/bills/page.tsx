@@ -20,9 +20,15 @@ export default async function Bills() {
     return String(a.bill_type + a.bill_num).localeCompare(String(b.bill_type + b.bill_num))
   })
 
+  // M-07: these four numbers are presented as a breakdown, so they have to add
+  // up. They previously did not — 102 + 16 + 23 = 141 against 131 bills —
+  // because a bill counted as "matched" could also be counted as "too broad".
+  // Too-broad wins: those bills are excluded from scoring whatever else matched.
   const withTrails = list.filter((b: any) => Number(b.trail_count || 0) > 0)
   const broad = list.filter((b: any) => b.is_broad)
-  const unmatched = list.filter((b: any) => !sectorsFor[b.bill_key]?.length && !b.is_broad)
+  const matched = list.filter((b: any) => !b.is_broad && sectorsFor[b.bill_key]?.length)
+  const unmatched = list.filter((b: any) => !b.is_broad && !sectorsFor[b.bill_key]?.length)
+  const reconciles = matched.length + broad.length + unmatched.length === list.length
   const votes = (rcs || []).length
 
   const num = (b: any) => `${String(b.bill_type || '').toUpperCase().replace('HRES', 'H.Res.')
@@ -44,7 +50,7 @@ export default async function Bills() {
           <div className="kpi mono">{list.length}</div>
           <div className="small">from GovInfo BILLSTATUS</div></div>
         <div className="card"><div className="eyebrow">Matched to an industry</div>
-          <div className="kpi mono">{Object.keys(sectorsFor).length}</div>
+          <div className="kpi mono">{matched.length}</div>
           <div className="small">by policy area or subject term</div></div>
         <div className="card"><div className="eyebrow">Too broad to score</div>
           <div className="kpi mono">{broad.length}</div>
@@ -53,6 +59,13 @@ export default async function Bills() {
           <div className="kpi mono">{unmatched.length}</div>
           <div className="small">shown, not hidden — they produce no trail</div></div>
       </div>
+
+      <p className="tiny" style={{ marginTop: 10, marginBottom: 0 }}>
+        {reconciles
+          ? `Those three categories are exclusive and add to ${list.length}: a bill is either
+             excluded as too broad, matched to at least one industry, or matched to none.`
+          : 'These categories do not currently add up, which is a bug — please report it.'}
+      </p>
 
       <div className="note">
         <strong>A bill with no trail is not a bill we ignored.</strong> Three things stop a bill
@@ -73,7 +86,8 @@ export default async function Bills() {
                   <BillArt size={52} />
                   <div style={{ minWidth: 0 }}>
                     <div className="eyebrow">{num(b)}</div>
-                    <h3 style={{ margin: '2px 0 0', fontSize: 15 }}>{b.title}</h3>
+                    <h3 className="clamp3" style={{ margin: '2px 0 0', fontSize: 15 }}
+                      title={b.title}>{b.title}</h3>
                   </div>
                 </div>
                 <div className="rule" />
@@ -97,7 +111,8 @@ export default async function Bills() {
             {list.map((b: any) => (
               <tr key={b.bill_key}>
                 <td>
-                  <Link href={hrefFor.bill(b.bill_key)}>{b.title}</Link>
+                  <Link href={hrefFor.bill(b.bill_key)} className="clamp3"
+                    title={b.title}>{b.title}</Link>
                   <div className="tiny">{num(b)}
                     {b.is_broad ? ' · too broad to score' : ''}</div>
                 </td>

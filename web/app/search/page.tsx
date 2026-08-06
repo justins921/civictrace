@@ -72,7 +72,8 @@ export default async function Search({ searchParams }:
               <Link key={r.kind + r.key} href={linkFor(r)} className="card"
                 style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>
                 <span className="badge b-low">{ENTITY_LABEL[r.kind]}</span>
-                <h3 style={{ marginTop: 10, fontSize: 15.5 }}>{r.title}</h3>
+                <h3 className="clamp3" style={{ marginTop: 10, fontSize: 15.5 }}
+                  title={r.title}>{r.title}</h3>
                 <div className="small">{r.subtitle}</div>
                 {r.amount != null && Number(r.amount) > 0 && (
                   <>
