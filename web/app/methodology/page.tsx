@@ -27,7 +27,7 @@ const SOURCES: [string, string, string][] = [
     'Itemized contributions from individuals, 29.3 million rows per cycle. Published here only as aggregates — size bands, occupations, employers above a three-donor floor, in-state share — and never as a name index. The file is itemized-only by law: a contributor is named once their giving passes $200 in aggregate, so it holds a majority but not all of a member’s individual money, and each member page states their own share.'],
   ['FEC bulk data — independent expenditures', 'https://www.fec.gov/data/browse-data/?tab=bulk-data',
     'Spending for or against a candidate by outside groups, shown on member pages as a separate ledger and never added to contributions. This file is filer-submitted and unvalidated: it currently contains multi-billion-dollar entries that are plainly not real, so filings above a plausibility ceiling are quarantined and counted rather than published.'],
-  ['Senate/House Lobbying Disclosure Act filings (lda.gov API)', 'https://lda.senate.gov/api/',
+  ['Senate/House Lobbying Disclosure Act filings (lda.gov API)', 'https://lda.gov/api/',   // lda.senate.gov retired 30 June 2026
     'Quarterly LD-2 filings: client, registrant, income or expenses, and a fixed list of 79 issue codes. Bill numbers are not a field in the LDA — registrants describe their work in prose — so bill-level lobbying here comes from parsing citations out of free text and covers a measured minority of filings.'],
 ]
 
