@@ -141,7 +141,11 @@ export default async function Methodology() {
           <li>It will never rank politicians against each other. A ranking function encodes the
             author&apos;s politics whether they meant it to or not.</li>
           <li>It will never take a position on a bill.</li>
-          <li>It will never show one interest side of an industry without the other.</li>
+          <li>It shows the opposing interest side whenever the classifier has one. Today only
+              Energy &amp; Utilities does, so almost every trail reports <code>$0</code> opposing
+              money — which means <em>not classified</em>, not <em>checked and none found</em>.
+              This is a known gap, found in outside review, and the trail pages say so rather than
+              letting the zero speak for itself.</li>
         </ul>
       </div>
 

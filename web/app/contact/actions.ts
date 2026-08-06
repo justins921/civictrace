@@ -5,11 +5,16 @@ import { db } from '@/lib/db'
 type Result = { ok: true; ref: string } | { ok: false; message: string }
 
 export async function fileReport(fd: FormData): Promise<Result> {
-  // Honeypot. A submission that fills this in is a bot; it gets the same
-  // response a real reporter gets, so there is nothing to tune against.
-  if (String(fd.get('company') || '').trim() !== '') {
-    return { ok: true, ref: 'CT-000000' }
-  }
+  // Honeypot, as a signal and never as a filter.
+  //
+  // The previous version discarded the submission and returned a fake reference
+  // — on a site that promises every correction is published. Browser autofill
+  // and password managers fill anything named company/organization regardless of
+  // autocomplete="off", so a real reporter could be told "keep this reference"
+  // for a report that was never written. That is the worst failure this form
+  // has. Now the report is always stored; a tripped honeypot only marks it for
+  // triage and keeps it out of the public counter until a human looks.
+  const flagged = String(fd.get('ct_hp_7f2') || '').trim() !== ''
 
   const s = (k: string) => {
     const v = String(fd.get(k) ?? '').trim()
@@ -29,19 +34,27 @@ export async function fileReport(fd: FormData): Promise<Result> {
     p_correct_value: s('correct_value'),
     p_source_url: s('source_url'),
     p_reply_to: s('reply_to'),
+    p_flagged: flagged,
   })
 
   if (error || !data) {
     // Surface the database's own message when it is one written for a human
     // (bad email, too long, throttled) and a neutral one otherwise. A reporter
     // who hits a wall and gets no explanation simply does not report again.
-    const m = error?.message || ''
-    const human = /required|too long|does not look valid|Too many reports/i.test(m)
+    // M21: key off our own error codes, never off the text of a Postgres
+    // message. Substring-matching raw database errors reflected internals like
+    // `value too long for type character varying(200)` straight into the page.
+    const HUMAN: Record<string, string> = {
+      CT001: 'Please describe what is wrong — that field is the report.',
+      CT002: 'That submission is longer than we accept. Please trim it and try again.',
+      CT003: 'That email address does not look valid. Leave it blank if you would rather stay anonymous.',
+      CT004: 'We have taken a lot of reports in the last hour. Please try again shortly.',
+    }
+    const code = (error as { code?: string } | null)?.code || ''
     return {
       ok: false,
-      message: human
-        ? m.replace(/^.*?:\s*/, '')
-        : 'Something went wrong on our end and the report was not saved. Please try again in a moment.',
+      message: HUMAN[code]
+        || 'Something went wrong on our end and the report was not saved. Please try again in a moment.',
     }
   }
 

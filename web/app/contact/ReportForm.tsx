@@ -111,9 +111,13 @@ export function ReportForm({ defaultUrl = '' }: { defaultUrl?: string }) {
         </label>
       </div>
 
-      {/* honeypot: a real person never fills this in, and it is not announced */}
+      {/* Honeypot. The name is deliberately meaningless: autofill and password
+          managers target company/organization/address regardless of
+          autocomplete="off", and a tripped honeypot used to silently destroy the
+          report. It now only flags for triage — nothing is ever discarded. */}
       <div aria-hidden style={{ position: 'absolute', left: '-9999px' }}>
-        <label>Leave this empty<input name="company" tabIndex={-1} autoComplete="off" /></label>
+        <label>Leave this empty
+          <input name="ct_hp_7f2" tabIndex={-1} autoComplete="off" /></label>
       </div>
 
       <button className="btn solid" type="submit" disabled={state.status === 'sending'}

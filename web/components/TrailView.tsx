@@ -161,6 +161,13 @@ export function TrailView({ t }: { t: Trail }) {
             <div className="eyebrow">Sector overlap</div>
             <div className={`verdict ${lc.verdict}`}>{t.label}</div>
             <div className="small">{t.label_why}</div>
+            <div className="tiny" style={{ marginTop: 8 }}>
+              This label is computed from the money and from how contested the vote was. It does
+              <strong> not</strong> take into account which way the member voted — a Yea and a Nay
+              on the same bill with the same money receive the same label. The member&apos;s
+              position is printed at the top of this page; read it yourself rather than inferring
+              it from the label.
+            </div>
           </div>
         </div>
         <div className="gauge-cell">
@@ -189,11 +196,12 @@ export function TrailView({ t }: { t: Trail }) {
             <div className="small">
               {Number(t.opposed_side_dollars) > 0
                 ? 'came from committees carrying the opposite interest side within this same industry — for example a utility PAC against an environmental PAC. That is our classification of the committee, not a statement about this bill.'
-                : 'No committee carrying the opposite interest side in this industry gave to this member this cycle. Zero here means we looked and found none — not that we skipped the check.'}
+                : 'This industry has no opposing side in our classifier yet, so we cannot tell you what the other side gave. Read this zero as missing, not as checked.'}
             </div>
             <div className="tiny" style={{ marginTop: 8 }}>
-              Shown beside the industry total by design. A trail that shows only one side of an
-              industry is an argument, not a record.
+              {Number(t.opposed_side_dollars) > 0
+                ? 'Shown beside the industry total by design. A trail that shows only one side of an industry is an argument, not a record.'
+                : 'Known gap, found in outside review: only one industry currently has a two-sided classification, so almost every trail reports $0 here. We previously said this zero meant we had checked. It did not, and that sentence is gone. Until the classifier has real opposing sides, treat this figure as missing rather than as evidence.'}
             </div>
           </div>
         </div>

@@ -12,3 +12,6 @@ pipeline/data/votes_raw/
 pipeline/data/*.zip
 pipeline/data/*_x/
 pipeline/*.html
+
+# scratch
+_to_delete/

@@ -34,8 +34,17 @@ export default async function Donors({ searchParams }:
   const total = count || 0
   const pages = Math.max(1, Math.ceil(total / PAGE))
   const shownSum = list.reduce((a: number, r: any) => a + Number(r.total_to_wi), 0)
-  const grand = (sectors || []).reduce((a: number, s: any) => a + Number(s.total_to_wi), 0)
-  const activeSector = (sectors || []).find((s: any) => s.sector_slug === sp.sector)
+  // `cycleTotal` is the whole published cycle; `filteredTotal` is what the current
+  // filter actually covers. Printing the first next to a filtered count is how
+  // /donors?sector=finance-insurance came to say "64 of them, $5,462,903 in all"
+  // — the same shape as the cross-cycle bug this page was rebuilt to fix.
+  const cycleTotal = (sectors || []).reduce((a: number, s: any) => a + Number(s.total_to_wi), 0)
+  const activeSectorRow = (sectors || []).find((s: any) => s.sector_slug === sp.sector)
+  const filtered = Boolean(sp.sector || sp.side)
+  const filteredTotal = sp.sector && activeSectorRow
+    ? Number(activeSectorRow.total_to_wi)
+    : null
+  const activeSector = activeSectorRow
 
   const qs = (over: Record<string, string | undefined>) => {
     const o: Record<string, string> = {}
@@ -50,12 +59,28 @@ export default async function Donors({ searchParams }:
     <div className="wrap">
       <h2 className="section">Donors</h2>
       <p className="lede">
-        Every political committee that made a direct contribution to a Wisconsin member of
-        Congress in the <strong>{CYCLE_LABEL}</strong> — <strong>{total.toLocaleString()}</strong>{' '}
-        of them, <strong>{money(grand)}</strong> in all. Each name opens that committee&apos;s own
-        page: who it gave to, when, and a link to the filed FEC document for every payment.
-        Earlier cycles are in the database but are not published here yet, and no figure on this
-        page mixes them.
+        {filtered ? (
+          <>
+            <strong>{total.toLocaleString()}</strong> committees match this filter
+            {filteredTotal !== null && <>, giving <strong>{money(filteredTotal)}</strong></>}{' '}
+            in the <strong>{CYCLE_LABEL}</strong>. Across every industry it is{' '}
+            <Link href="/donors">
+              {recon ? Number(recon.committees_listed).toLocaleString() : 'all'} committees
+            </Link>{' '}and <strong>{money(cycleTotal)}</strong>. Each name opens that
+            committee&apos;s own page: who it gave to, when, and a link to the filed FEC document
+            for every payment.
+          </>
+        ) : (
+          <>
+            Every political committee that made a direct contribution to a Wisconsin member of
+            Congress in the <strong>{CYCLE_LABEL}</strong> —{' '}
+            <strong>{total.toLocaleString()}</strong> of them,{' '}
+            <strong>{money(cycleTotal)}</strong> in all. Each name opens that committee&apos;s own
+            page: who it gave to, when, and a link to the filed FEC document for every payment.
+            Earlier cycles are in the database but are not published here yet, and no figure on
+            this page mixes them.
+          </>
+        )}
       </p>
 
       <div className="note">
@@ -131,8 +156,9 @@ export default async function Donors({ searchParams }:
           </tbody>
         </table>
         <div className="small" style={{ marginTop: 10 }}>
-          Showing {list.length.toLocaleString()} of {total.toLocaleString()} committees
-          ({money(shownSum)} of {money(grand)} on this page).
+          Showing {list.length.toLocaleString()} of {total.toLocaleString()}{' '}
+          {filtered ? 'matching ' : ''}committees — {money(shownSum)} on this page
+          {filteredTotal !== null ? ` of ${money(filteredTotal)} matching the filter` : ''}.
         </div>
         {pages > 1 && (
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>

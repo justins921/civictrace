@@ -50,7 +50,11 @@ CYCLE = int(os.environ.get("CT_CYCLE", "2026"))
 CYCLES = sorted({int(c) for c in os.environ.get("CT_CYCLES", "2024,2026").split(",") if c.strip()}
                 | {CYCLE})
 
-FEC_STEMS = ("cn", "cm", "ccl", "pas2")
+# stem -> the file the loader actually opens inside the archive. Checking that
+# the directory is merely non-empty is what let a bad extract through: the run
+# failed three steps later with FileNotFoundError on cn24_x/cn.txt.
+FEC_MEMBERS = {"cn": "cn.txt", "cm": "cm.txt", "ccl": "ccl.txt", "pas2": "itpas2.txt"}
+FEC_STEMS = tuple(FEC_MEMBERS)
 LEGIS = "https://unitedstates.github.io/congress-legislators/legislators-current.json"
 
 
@@ -91,7 +95,13 @@ def fetch_if_changed(url, dest: Path, force=False):
         headers["If-Modified-Since"] = stamp
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=600) as r:
-            dest.write_bytes(r.read())
+            # Write to a temp file and rename. A crash partway through a direct
+            # write leaves a truncated archive carrying a *fresh* mtime, so the
+            # next run's If-Modified-Since gets a 304 and the corruption becomes
+            # permanent. os.replace is atomic on the same filesystem.
+            tmp = dest.with_suffix(dest.suffix + ".part")
+            tmp.write_bytes(r.read())
+            os.replace(tmp, dest)
             return True
     except urllib.error.HTTPError as e:
         if e.code == 304:
@@ -120,12 +130,15 @@ def pull_sources():
                 with zipfile.ZipFile(z) as zf:
                     zf.extractall(out)
             got[name] = changed
-            # Fail here with the file name rather than three steps later with a
-            # FileNotFoundError from deep inside the loader.
-            if not any(out.iterdir()):
-                missing.append(str(out))
+            # Assert the exact member the loader will open, not just that the
+            # directory has something in it.
+            want = out / FEC_MEMBERS[stem]
+            if not want.exists() or want.stat().st_size == 0:
+                found = sorted(p.name for p in out.iterdir())[:6]
+                missing.append(f"{want} (archive contains: {found or 'nothing'})")
     if missing:
-        raise RuntimeError("FEC archives extracted to nothing: " + ", ".join(missing))
+        raise RuntimeError("FEC archive is missing the file the loader needs: "
+                           + "; ".join(missing))
     log("sources: " + ", ".join(f"{k}={'new' if v else 'cached'}" for k, v in got.items()))
     return got
 

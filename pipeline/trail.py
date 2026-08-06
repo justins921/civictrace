@@ -7,10 +7,19 @@ Design rules baked into this module (these are product requirements, not style):
   2. Every returned figure carries the source document it came from.
   3. Contradicting evidence is returned in the same payload as supporting
      evidence, with the same structure, so the UI cannot show one without the
-     other. `opposed_side_dollars` and the base-rate block are not optional.
-  4. Alignment is a description of overlap, not a score of corruption. It is
-     computed only from: does the member's position match the direction the
-     sector's money usually favours, and how much of that money is present.
+     other. The base-rate block is not optional.
+     KNOWN GAP (outside review, Aug 2026): `opposed_side_dollars` only works for
+     Energy & Utilities. OPPOSING below is a one-element set, so every other
+     industry reports 0 by construction — not because nothing was found, but
+     because nothing can be. The UI now says so. Fixing this properly means
+     giving `interest_side` a real two-sided axis per sector in sectors.py.
+  4. Alignment is a description of overlap, not a score of corruption.
+     KNOWN GAP (outside review, Aug 2026): this rule describes behaviour the
+     code does not implement. alignment_label() reads the money and how
+     contested the vote was; it never reads t["vote"]["position"], so a Yea and
+     a Nay on the same bill with the same money get the same label. The trail
+     page now states that plainly. Do not reinstate the sentence above until
+     the function actually compares direction.
 """
 import sqlite3, json
 from pathlib import Path

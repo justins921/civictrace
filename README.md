@@ -52,8 +52,11 @@ findings we could otherwise have shown:
 4. **Ledger sides are never mixed silently.** We publish giver-side figures (FEC
    Schedule B); the FEC candidate page shows recipient-side (Schedule A). They
    never tie. The site says so, with a worked example.
-5. **Opposing money always ships with aligned money.** A trail showing one side of
-   an issue is an argument, not a record.
+5. **Opposing money ships with aligned money wherever the classifier has an
+   opposing side.** Today only Energy & Utilities does, so almost every trail
+   reports $0 opposing — which means *not classified*, not *checked and none
+   found*. Known gap from the August 2026 outside review; the trail pages now
+   say so instead of letting the zero imply a check that did not happen.
 6. **Every classification carries a rule ID**, printed on the page.
 7. **No causal verbs.** Not "because", not "in exchange for", not "bought".
 8. **Every correction is published**, including the ones we found ourselves.

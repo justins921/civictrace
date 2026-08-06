@@ -22,10 +22,14 @@ export default async function Bill({ params }: { params: Promise<{ key: string }
   ])
 
   // Roll calls are matched on the legislative number as printed by the chamber.
-  const label = `${b.bill_type.toUpperCase().replace('HR', 'H R').replace('HRES', 'H RES')
-    .replace('HJRES', 'H J RES').replace('SRES', 'S RES').replace('SJRES', 'S J RES')} ${b.bill_num}`
-  const votes = (rolls || []).filter((r: any) =>
-    (r.legis_num || '').replace(/\s+/g, '') === label.replace(/\s+/g, ''))
+  // The House Clerk writes "H R 1234"; the Senate LIS writes "H.R. 1234" and
+  // "S.J.Res. 163". Stripping only whitespace matched one convention and not the
+  // other, so 40 of 131 bill pages rendered a money trail with no roll call
+  // beneath it — the vote was in the database the whole time. Normalise both
+  // sides down to letters and digits and the question disappears.
+  const norm = (v: string) => (v || '').replace(/[^a-z0-9]/gi, '').toUpperCase()
+  const label = `${b.bill_type}${b.bill_num}`
+  const votes = (rolls || []).filter((r: any) => norm(r.legis_num) === norm(label))
 
   const voteKeys = votes.map((v: any) => v.vote_key)
   const { data: positions } = voteKeys.length
