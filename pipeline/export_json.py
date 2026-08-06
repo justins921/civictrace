@@ -140,6 +140,9 @@ for m in WI:
             "total_pac_dollars": t["money"]["total_pac_dollars"],
             "aligned_side_dollars": t["money"]["aligned_side_dollars"],
             "opposed_side_dollars": t["money"]["opposed_side_dollars"],
+            "adjacent_dollars": t["money"]["adjacent_dollars"],
+            "adjacent_sides": "; ".join(t["money"]["adjacent_sides"]) or None,
+            "bill_side": "; ".join(sorted(set(t["money"]["bill_sides"].values()))) or None,
             "pac_count": t["money"]["pac_count"],
             "days_since_last_sector_contribution": t["money"]["days_since_last_sector_contribution"],
             "party_line_share_pct": t["context"]["party_line_share_pct"],
@@ -163,7 +166,7 @@ dump("02_committee", "committee", cmtes, ["cmte_id","cycle","cmte_name","cmte_tp
 dump("03_bill", "bill", bills, ["bill_key","congress","bill_type","bill_num","title","policy_area",
      "subjects","sponsor_name","sponsor_bioguide","sponsor_party","sponsor_state","intro_date",
      "latest_action","latest_action_date","summary","source_url","congressgov_url","is_broad"], per=25)
-dump("04_bill_sector", "bill_sector", bsec, ["bill_key","sector","evidence"], per=300)
+dump("04_bill_sector", "bill_sector", bsec, ["bill_key","sector","evidence","interest_side"], per=300)
 dump("05_rollcall", "rollcall", rcs, ["vote_key","chamber","congress","session","year","rollnum",
      "legis_num","vote_question","vote_desc","vote_result","action_date","iso_date","yea","nay",
      "present","notvoting","source_url"], per=180)
@@ -176,7 +179,8 @@ dump("09_earmark", "earmark", ears, ["fiscal_year","last_name","first_name","mem
 dump("09b_earmark_agg", "earmark_agg", ear_agg, ["scope","key","n","total"], per=50)
 dump("10_trail", "money_trail", trails, ["vote_key","bioguide","cycle","bill_key","label","label_why",
      "sectors","top_pacs","sector_dollars","sector_share_pct","total_pac_dollars","aligned_side_dollars",
-     "opposed_side_dollars","pac_count","days_since_last_sector_contribution","party_line_share_pct",
+     "opposed_side_dollars","adjacent_dollars","adjacent_sides","bill_side",
+     "pac_count","days_since_last_sector_contribution","party_line_share_pct",
      "minority_share_pct","voted_with_chamber","voted_with_party","position","rank"], per=90)
 
 # ---- context sources (August 2026 sources review) ----------------------------

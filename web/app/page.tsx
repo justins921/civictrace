@@ -90,6 +90,17 @@ export default async function Home() {
         </div>
 
         <h2 className="section">The three worth reading first</h2>
+        {(counts['Crossed party, one-sided industry money'] || 0) === 0 && (
+          <div className="note">
+            <strong>Nothing currently carries our strongest label, and we would rather say so than
+            promote something to fill the slot.</strong> Until August 6 three trails did. All three
+            were wrong: two were votes on amendments, whose subject appears nowhere in the
+            roll-call record but which inherit the parent bill&apos;s industry, and the third
+            matched an aviation safety bill to railroad and construction money because our
+            industry categories were a level too coarse. Both defects are fixed and the trails are
+            gone. See the <Link href="/corrections">corrections log</Link>.
+          </div>
+        )}
         <p className="lede">
           These trails ranked highest under our conservative methodology, which weighs the sector&apos;s
           share of the member&apos;s PAC money, how contested the vote was, the timing, and how the

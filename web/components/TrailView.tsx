@@ -16,6 +16,7 @@ export type Trail = {
   sector_dollars: number; sector_share_pct: number; total_pac_dollars: number
   aligned_side_dollars: number; opposed_side_dollars: number; pac_count: number
   has_interest_axis?: boolean; larger_pole?: string | null; smaller_pole?: string | null
+  adjacent_dollars?: number | null; adjacent_sides?: string | null; bill_side?: string | null
   days_since_last_sector_contribution: number | null
   timing_date: string | null; timing_same_day: boolean
   timing_contributions: { cmte_id: string; name: string; amount: number; date: string; fec_url: string }[]
@@ -216,6 +217,24 @@ export function TrailView({ t }: { t: Trail }) {
           </div>
         </div>
       </div>
+
+      {Number(t.adjacent_dollars) > 0 && (
+        <div className="note" style={{ marginTop: 16 }}>
+          <strong>What this bill&apos;s subject excluded.</strong> This bill is about{' '}
+          <strong>{t.bill_side}</strong>, so only committees working in that line of business
+          count as its industry money. This member also received{' '}
+          <strong>{money(t.adjacent_dollars)}</strong> from the same industry on a different
+          line — {t.adjacent_sides?.split('; ').join(', ')} — and it is <em>not</em> in the figure
+          above.
+          <div className="tiny" style={{ marginTop: 8 }}>
+            We separate these because we got it wrong. An aviation safety bill on this site was
+            once backed by two freight railroads and four construction PACs, with a same-day
+            railroad contribution reading as the strongest finding we had published. A railroad
+            has no stake in helicopter transponder rules. The money is still shown — it is real,
+            and you may think it matters — but it is not counted as money about this bill.
+          </div>
+        </div>
+      )}
 
       {/* ---- context + money table ---- */}
       {t.timing_date && (

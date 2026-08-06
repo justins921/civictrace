@@ -170,6 +170,77 @@ BILL_TEXT_RULES = [
 ]
 
 
+# Bill -> a specific line of business inside a sector.
+#
+# "Transportation" contains aviation, rail, trucking, auto and maritime, and the
+# bill match was happening at the sector level only. That is how an aviation
+# safety bill came to be backed by railroad money on the site's flagship trail.
+# These rules read the bill's own title and CRS summary and, where the subject is
+# unambiguous, pin it to one `interest_side`. Money from the same sector on a
+# different side is then reported separately instead of counted as sector money.
+#
+# Only unambiguous subjects get a rule. A bill about "surface transportation
+# generally" has no side here, and falls back to whole-sector matching — that is
+# the honest answer, not a guess.
+BILL_SIDE_RULES = [
+    ("BS-A1", "Transportation", "aviation",
+     r"\b(aviation|aircraft|rotorcraft|helicopter|airline|airport|air traffic|ADS-?B|FAA|"
+     r"federal aviation|pilot|airspace|airworthiness)\b"),
+    ("BS-A2", "Transportation", "rail",
+     r"\b(railroad|railway|rail carrier|amtrak|locomotive|freight rail|passenger rail|"
+     r"grade crossing|surface transportation board)\b"),
+    ("BS-A3", "Transportation", "trucking",
+     r"\b(motor carrier|trucking|commercial driver|hours of service|highway safety|"
+     r"interstate trucking)\b"),
+    ("BS-A4", "Transportation", "maritime",
+     r"\b(maritime|merchant marine|vessel|port authority|harbor|shipbuilding|coast guard|"
+     r"jones act|waterway)\b"),
+    ("BS-A5", "Transportation", "auto",
+     r"\b(motor vehicle safety|automobile|passenger car|NHTSA|fuel economy standard|"
+     r"vehicle emissions|autonomous vehicle)\b"),
+
+    ("BS-H1", "Health Care", "pharma",
+     r"\b(prescription drug|drug pricing|pharmaceutical|biosimilar|generic drug|"
+     r"drug shortage|patent thicket|orphan drug)\b"),
+    ("BS-H2", "Health Care", "health insurers",
+     r"\b(health insurance|health plan|medicare advantage|prior authorization|"
+     r"insurance marketplace|risk adjustment)\b"),
+    ("BS-H3", "Health Care", "providers",
+     r"\b(hospital|physician|nurse|graduate medical education|provider reimbursement|"
+     r"rural health clinic|critical access)\b"),
+    ("BS-H4", "Health Care", "device makers",
+     r"\b(medical device|diagnostic equipment|durable medical equipment)\b"),
+    ("BS-H5", "Health Care", "pharmacy & distribution",
+     r"\b(pharmacy benefit manager|PBM|pharmacist|drug wholesaler|340B)\b"),
+
+    ("BS-E1", "Energy & Utilities", "oil & gas",
+     r"\b(oil and gas|petroleum|natural gas|offshore drilling|refinery|"
+     r"strategic petroleum reserve|LNG|(natural gas|oil|gas|hazardous liquid) pipeline|"
+     r"pipeline safety)\b"),
+    ("BS-E2", "Energy & Utilities", "clean energy / environment",
+     r"\b(renewable energy|solar power|wind energy|clean electricity|emissions reduction|"
+     r"greenhouse gas|clean air act|endangered species|energy conservation standard|"
+     r"climate change)\b"),
+    ("BS-E3", "Energy & Utilities", "mining",
+     r"\b(hardrock mining|critical mineral|coal mine|mine safety|mineral leasing)\b"),
+    ("BS-E4", "Energy & Utilities", "nuclear",
+     r"\b(nuclear reactor|nuclear energy|spent fuel|nuclear regulatory)\b"),
+    ("BS-E5", "Energy & Utilities", "biofuels",
+     r"\b(renewable fuel standard|ethanol|biodiesel|biofuel)\b"),
+
+    ("BS-F1", "Finance & Insurance", "banking",
+     r"\b(bank holding|community bank|credit union|deposit insurance|bank capital|"
+     r"consumer financial protection)\b"),
+    ("BS-F2", "Finance & Insurance", "insurance",
+     r"\b(insurance company|flood insurance|reinsurance|insurance regulation)\b"),
+    ("BS-F3", "Finance & Insurance", "investment",
+     r"\b(securities and exchange|investment adviser|mutual fund|private equity|"
+     r"capital formation|accredited investor)\b"),
+    ("BS-F4", "Finance & Insurance", "payments",
+     r"\b(interchange fee|payment card|credit card network|payment system)\b"),
+]
+
+
 def classify_pac(name, connected_org_name="", cmte_tp="", cmte_dsgn="", org_tp=""):
     """Industry rules win over structural codes: a corporate PAC that is also a
     leadership PAC should read as its industry. Structural codes are the fallback
@@ -209,10 +280,34 @@ WEAK_TOGETHER = 3     # this many distinct weak words, and nothing specific, sti
 
 
 def classify_bill(policy_area, title, summary):
+    """Sector matches for a bill, with the weaker evidence dropped when better exists.
+
+    A CRS policy area is one label for a whole committee's worth of subject
+    matter, and several of them fan out to more than one sector: "Transportation
+    and Public Works" hands a bill to both Transportation and Real Estate &
+    Construction. That fan-out is a guess, and it was being treated as evidence
+    equal to the bill's own words.
+
+    The ROTOR Act is the case that exposed it. A rotorcraft transponder bill,
+    correctly identified as aviation from its own title, was also matched to Real
+    Estate & Construction on the policy area alone — so realtors, an apartment
+    association and three construction PACs counted as its industry money, and
+    the only genuinely aviation dollars in the trail were $2,500 from an airline
+    pilots' union.
+
+    So: when a bill's own text places it in some sector, sectors resting only on
+    a multi-sector policy-area fan-out are dropped. A policy area that maps to
+    exactly one sector is a precise statement, not a guess, and is kept.
+    """
     hits = {}
+    from_text = set()
+    fanned_out = set()
     if policy_area and policy_area in BILL_POLICY_SECTOR:
-        for s in BILL_POLICY_SECTOR[policy_area]:
+        mapped = BILL_POLICY_SECTOR[policy_area]
+        for s in mapped:
             hits.setdefault(s, []).append(f"CRS policy area: {policy_area}")
+            if len(mapped) > 1:
+                fanned_out.add(s)
     head = (title or "").lower()
     hay = f"{title or ''} {(summary or '')[:2500]}".lower()
     for rid, sector, pat in BILL_TEXT_RULES:
@@ -235,6 +330,12 @@ def classify_bill(policy_area, title, summary):
             # the case that used to attach Health Care to defense bills.
             continue
         hits.setdefault(sector, []).append(why)
+        from_text.add(sector)
+
+    if from_text:
+        dropped = [s for s in fanned_out if s not in from_text]
+        for s in dropped:
+            hits.pop(s, None)
     return hits
 
 
@@ -246,7 +347,7 @@ def main():
     CREATE TABLE pac_sector (cmte_id TEXT, cycle INTEGER, cmte_name TEXT,
       sector TEXT, interest_side TEXT, rule_id TEXT, pole TEXT,
       PRIMARY KEY (cmte_id, cycle));
-    CREATE TABLE bill_sector (bill_key TEXT, sector TEXT, evidence TEXT);
+    CREATE TABLE bill_sector (bill_key TEXT, sector TEXT, evidence TEXT, interest_side TEXT);
     CREATE TABLE sector_axis (sector TEXT PRIMARY KEY, axis TEXT,
       pole_a TEXT, pole_b TEXT, sides_a TEXT, sides_b TEXT, unaligned_note TEXT);
     """)
@@ -267,10 +368,25 @@ def main():
 
     nb = 0
     for k, pa, t, s in c.execute("SELECT bill_key, policy_area, title, summary FROM bill").fetchall():
+        hay = f"{t or ''} {(s or '')[:2500]}".lower()
         for sector, ev in classify_bill(pa, t, s).items():
-            c.execute("INSERT INTO bill_sector VALUES (?,?,?)", (k, sector, " | ".join(ev)))
+            side, side_ev = None, None
+            for rid, sec, sd, pat in BILL_SIDE_RULES:
+                if sec != sector:
+                    continue
+                m = re.search(pat, hay)
+                if m:
+                    # First match wins, and a second match on a *different* side
+                    # means the bill spans the sector — no side, whole sector.
+                    if side is not None and side != sd:
+                        side, side_ev = None, "spans more than one line of business"
+                        break
+                    side, side_ev = sd, f"{rid}: matched '{m.group(0)}'"
+            c.execute("INSERT INTO bill_sector VALUES (?,?,?,?)",
+                      (k, sector, " | ".join(ev + ([side_ev] if side_ev else [])), side))
             nb += 1
-    print(f"bill-sector links: {nb}")
+    sided = c.execute("SELECT COUNT(*) FROM bill_sector WHERE interest_side IS NOT NULL").fetchone()[0]
+    print(f"bill-sector links: {nb} ({sided} pinned to a specific line of business)")
     con.commit()
     print("interest axes:")
     for sec, cfg in SECTOR_AXIS.items():

@@ -63,6 +63,29 @@ def member_money(c, cand_id, cycle):
     """, (cand_id, cycle)).fetchall()
 
 
+# A roll call only inherits a bill's industry classification when the thing being
+# voted on is the bill itself.
+#
+# Found by hand-checking the site's three strongest trails, all of which were
+# defective. Two were `On Agreeing to the Amendment` on H.R. 7567 — the House
+# Clerk labels an amendment roll call with the parent bill's number, so
+# parse_legis maps it to the bill and the bill's Agriculture classification flows
+# straight through to a vote whose actual subject appears nowhere in the record.
+# /vote/[key] already tells readers we refuse exactly that inference. The trail
+# engine had been making it since the beginning, on 272 of 994 trails.
+#
+# Recommit motions carry instructions that are equally invisible to us, and the
+# previous question is pure floor procedure. Cloture and motions to proceed stay:
+# they are about that specific bill, and in the Senate cloture is usually the
+# real vote.
+SUBJECT_NOT_IN_RECORD = ("amendment", "recommit", "previous question")
+
+
+def subject_is_the_bill(vote_question):
+    q = (vote_question or "").lower()
+    return not any(k in q for k in SUBJECT_NOT_IN_RECORD)
+
+
 def build_trail(vote_key, bioguide, cand_id, cycle):
     """Return one fully-sourced money trail, or None if the member has no
     recorded position on that vote."""
@@ -92,15 +115,42 @@ def build_trail(vote_key, bioguide, cand_id, cycle):
     # A bill that touches every sector (an omnibus, a CR, a full-year
     # appropriations act) cannot support a sector-alignment reading. We refuse to
     # compute one rather than publish a number that looks precise and isn't.
-    if bill and not bill["is_broad"]:
-        sectors = c.execute("SELECT sector, evidence FROM bill_sector WHERE bill_key = ?",
-                            (bill["bill_key"],)).fetchall()
+    if bill and not bill["is_broad"] and subject_is_the_bill(rc["vote_question"]):
+        sectors = c.execute(
+            "SELECT sector, evidence, interest_side FROM bill_sector WHERE bill_key = ?",
+            (bill["bill_key"],)).fetchall()
     sector_names = [s["sector"] for s in sectors]
+
+    # Where a bill names a specific line of business, only that line's money is
+    # sector money.
+    #
+    # The site's flagship trail was Tony Wied crossing his party on the ROTOR
+    # Act — an aviation safety bill about rotorcraft transponders — with a BNSF
+    # Railway contribution dated the same day as the vote. The "Transportation"
+    # money behind it was two freight railroads, a trucking company and four
+    # construction and real-estate PACs. Not one aviation dollar. A railroad has
+    # no stake in helicopter tracking rules, and a same-day coincidence dressed
+    # as a finding is the worst thing this site can publish.
+    #
+    # interest_side already records rail / trucking / aviation / auto / maritime;
+    # the bill match was simply happening a level above it. Money from the same
+    # industry but a different line of business is still shown — as its own
+    # figure, under its own name — never folded into the headline number.
+    bill_sides = {s["sector"]: s["interest_side"] for s in sectors if s["interest_side"]}
 
     rows = member_money(c, cand_id, cycle)
     total_all = sum(r["amount"] for r in rows)
-    in_sector = [r for r in rows if r["sector"] in sector_names]
+
+    def on_point(r):
+        """True when this committee works in the line of business the bill is about."""
+        want = bill_sides.get(r["sector"])
+        return want is None or (r["interest_side"] or "") == want
+
+    same_industry = [r for r in rows if r["sector"] in sector_names]
+    in_sector = [r for r in same_industry if on_point(r)]
+    adjacent = [r for r in same_industry if not on_point(r)]
     total_sector = sum(r["amount"] for r in in_sector)
+    total_adjacent = sum(r["amount"] for r in adjacent)
 
     # Split the sector's money across the sector's declared two-sided axis.
     #
@@ -204,6 +254,11 @@ def build_trail(vote_key, bioguide, cand_id, cycle):
             "larger_pole": pole_a[0],
             "smaller_pole": pole_b[0],
             "unaligned_dollars": round(sum(r["amount"] for r in unaligned), 2),
+            # Same industry, different line of business — the money the bill's
+            # own subject says is not about this bill.
+            "adjacent_dollars": round(total_adjacent, 2),
+            "adjacent_sides": sorted({r["interest_side"] for r in adjacent if r["interest_side"]}),
+            "bill_sides": bill_sides,
             "pac_count": len(pacs),
             "pacs": pacs,
             "days_since_last_sector_contribution": days_since,
