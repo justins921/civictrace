@@ -93,3 +93,41 @@ export const ENTITY_LABEL: Record<string, string> = {
   member: 'Politician', committee: 'Contributing committee',
   bill: 'Bill', sector: 'Sector',
 }
+
+/* ------------------------------------------------------------------ counting
+
+   Never `.length` or `.reduce()` a Supabase response you did not bound.
+
+   PostgREST silently caps an unbounded select at 1000 rows. Every figure this
+   site has gotten wrong at scale has been the same mistake: fetch a collection,
+   count it in JavaScript, print the result as a total. It is invisible until
+   the table crosses 1000 rows, and then it is wrong on a page that promises
+   not to be. It has now happened twice — the trail total, and the all-cycle
+   sum in the deploy gate — so the counting lives here, once, and both pages
+   call it rather than each writing the query again and drifting apart.
+
+   `count: 'exact', head: true` asks Postgres for the number and transfers no
+   rows at all. It is both correct and cheaper than what it replaces. */
+
+export type LabelCounts = {
+  counts: Record<string, number>
+  total: number
+  /** False when the labels stop partitioning the table — a classification bug,
+      and the page should say so rather than print a breakdown that does not
+      add up to the total beside it. */
+  partitions: boolean
+}
+
+export async function labelCounts(): Promise<LabelCounts> {
+  const [pairs, { count: total }] = await Promise.all([
+    Promise.all(LABELS.map(async (l: string) => {
+      const { count } = await db.from('money_trail')
+        .select('label', { count: 'exact', head: true }).eq('label', l)
+      return [l, count || 0] as const
+    })),
+    db.from('money_trail').select('label', { count: 'exact', head: true }),
+  ])
+  const counts = Object.fromEntries(pairs)
+  const summed = pairs.reduce((a, [, n]) => a + n, 0)
+  return { counts, total: total || 0, partitions: summed === (total || 0) }
+}

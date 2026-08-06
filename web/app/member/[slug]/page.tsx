@@ -20,7 +20,8 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
       db.from('member_sector_money').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE),
       db.from('member_top_committee').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE)
         .order('total', { ascending: false }).limit(25),
-      db.from('trail_full').select('*').eq('bioguide', m.bioguide).order('rank').limit(12),
+      db.from('trail_full').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE)
+        .order('rank').limit(12),
       // Ordered in the database, not in the browser. "The 15 most recent votes"
       // was previously computed by pulling an unordered page of 400 and sorting
       // what came back — correct only for as long as no member exceeded 400 roll
@@ -28,7 +29,11 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
       // cap is crossed the page would have shown 15 arbitrary votes and called
       // them recent, with nothing to notice it by.
       db.from('vote_position').select('*, rollcall!inner(*)').eq('bioguide', m.bioguide)
-        .order('iso_date', { referencedTable: 'rollcall', ascending: false }).limit(1200),
+        // NB: PostgREST's server max-rows caps this at 1000 whatever we ask
+        // for, so the limit is a ceiling we do not control. What the ordering
+        // buys is that the 1000 we get are the newest 1000, so "recent" stays
+        // true even when the cap bites. Max today is 283 per member.
+        .order('iso_date', { referencedTable: 'rollcall', ascending: false }).limit(1000),
       db.from('earmark').select('*').eq('bioguide', m.bioguide).order('amount', { ascending: false }),
     ])
 

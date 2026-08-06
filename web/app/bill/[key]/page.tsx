@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { db, money, partyLetter, labelClass, trailHref, hrefFor, isYes } from '@/lib/db'
+import { db, money, partyLetter, labelClass, trailHref, hrefFor, isYes, CYCLE } from '@/lib/db'
 import { BillArt } from '@/components/Art'
 
 export const revalidate = 3600
@@ -17,7 +17,7 @@ export default async function Bill({ params }: { params: Promise<{ key: string }
 
   const [{ data: sectors }, { data: trails }, { data: rolls }] = await Promise.all([
     db.from('bill_sector').select('*').eq('bill_key', key),
-    db.from('trail_full').select('*').eq('bill_key', key).order('rank'),
+    db.from('trail_full').select('*').eq('bill_key', key).eq('cycle', CYCLE).order('rank'),
     db.from('rollcall').select('*').eq('congress', b.congress),
   ])
 

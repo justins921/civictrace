@@ -134,6 +134,18 @@ def pull_sources():
             # directory has something in it.
             want = out / FEC_MEMBERS[stem]
             if not want.exists() or want.stat().st_size == 0:
+                # Re-extract once before giving up. The archive is only fetched
+                # when it changes, so a damaged or hand-edited extract directory
+                # would otherwise fail this assertion on every run forever, with
+                # a perfectly good zip sitting next to it. Self-heal from the
+                # archive we already have; only fail if the archive itself is
+                # the problem.
+                log(f"   {want.name} missing from {out.name}, re-extracting {z.name}")
+                shutil.rmtree(out, ignore_errors=True)
+                out.mkdir(parents=True)
+                with zipfile.ZipFile(z) as zf:
+                    zf.extractall(out)
+            if not want.exists() or want.stat().st_size == 0:
                 found = sorted(p.name for p in out.iterdir())[:6]
                 missing.append(f"{want} (archive contains: {found or 'nothing'})")
     if missing:
@@ -256,6 +268,18 @@ def preflight():
     # it, and it is the exact defect the Senate fetcher shipped for months.
     check("every roll call has an ISO date",
           sorted(r["vote_key"] for r in load("05_rollcall.rollcall") if not r.get("iso_date")))
+
+    # The home page and /trails both print the label breakdown as a partition of
+    # the trail total. If it stops being one, they print a breakdown that does
+    # not add up to the number beside it — and the two pages already diverged
+    # once on exactly this statistic.
+    by_label = {}
+    for t in trails:
+        by_label[t["label"]] = by_label.get(t["label"], 0) + 1
+    check("trail labels partition the trail total",
+          [] if sum(by_label.values()) == len(trails)
+          else [f"labels sum to {sum(by_label.values())} of {len(trails)}"])
+    log(f"   labels: {by_label}")
 
     if bad:
         raise RuntimeError("pre-publish invariants broken, nothing was published — "

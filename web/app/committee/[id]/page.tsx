@@ -30,16 +30,31 @@ export default async function Committee({ params }: { params: Promise<{ id: stri
   const otherCycles = rows.filter((r: any) => Number(r.cycle) !== CYCLE
     && Number(r.payments_to_wi) > 0)
 
-  const [{ data: recips }, { data: pays }, { data: trailsRaw }] = await Promise.all([
+  const [{ data: recips }, { data: pays }, { data: trailsRaw, count: trailCount, error: trailErr }] = await Promise.all([
     db.from('committee_recipients').select('*').eq('filer_cmte_id', id).eq('cycle', CYCLE)
       .order('total', { ascending: false }).order('bioguide', { ascending: true }),
     db.from('committee_payments').select('*').eq('filer_cmte_id', id).eq('cycle', CYCLE),
-    db.from('trail_full').select('*').order('rank').limit(300),
+    // Filtered in the database, not here. This used to pull the top 300 trails
+    // by rank and search them in JS for this committee. At 591 trails that was
+    // merely lossy; at 1,032 it left 24 of 167 committees rendering no trails
+    // section at all — indistinguishable, to a reader, from a committee that
+    // has none. jsonb containment does the same match server-side over every
+    // row, and `count` gives us the honest total behind the nine we show.
+    db.from('trail_full').select('*', { count: 'exact' })
+            // JSON.stringify is required, not stylistic: supabase-js serialises a raw
+      // array argument as a Postgres array literal, which a jsonb column rejects
+      // with "invalid input syntax for type json". The query then returns an
+      // error and zero rows, and this page renders no trails section at all —
+      // the exact silent blank this change was meant to remove.
+      .contains('top_pacs', JSON.stringify([{ cmte_id: id }]))
+      .eq('cycle', CYCLE).order('rank').limit(9),
   ])
 
-  // Trails where this committee is one of the sector contributors shown.
-  const trails = (trailsRaw || []).filter((t: any) =>
-    (t.top_pacs || []).some((p: any) => p.cmte_id === id)).slice(0, 9)
+  // A failed query must not look like an empty result. Both render as "no
+  // trails" to a reader, and only one of them is true.
+  if (trailErr) throw new Error(`committee trails query failed: ${trailErr.message}`)
+  const trails = trailsRaw || []
+  const trailTotal = trailCount || 0
 
   const totalAll = Number(c.total_to_wi || 0)
   const payAll = Number(c.payments_to_wi || 0)
@@ -187,6 +202,8 @@ export default async function Committee({ params }: { params: Promise<{ id: stri
           <p className="lede small">
             This committee is one of the sector contributors listed on these trails. Appearing here
             is not an allegation — most trails are labelled low or no signal on purpose.
+            {trailTotal > trails.length && <> Showing {trails.length} of <strong>{trailTotal.toLocaleString()}</strong>;
+            the rest are on <Link href="/trails">the trails page</Link>.</>}
           </p>
           <div className="grid g3">
             {trails.map((t: any) => (

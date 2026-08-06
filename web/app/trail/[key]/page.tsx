@@ -1,12 +1,13 @@
 import { notFound } from 'next/navigation'
-import { db, partyLetter, officeLine } from '@/lib/db'
+import { db, partyLetter, officeLine, CYCLE } from '@/lib/db'
 import { TrailView, type Trail } from '@/components/TrailView'
 import { Sleuth } from '@/components/Art'
 
 export const revalidate = 3600
 
 export async function generateStaticParams() {
-  const { data } = await db.from('money_trail').select('vote_key,bioguide').order('rank').limit(60)
+  const { data } = await db.from('money_trail').select('vote_key,bioguide').eq('cycle', CYCLE)
+    .order('rank').limit(60)
   return (data || []).map((t: any) => ({ key: `${t.vote_key}--${t.bioguide}` }))
 }
 
@@ -17,8 +18,15 @@ export default async function TrailPage({ params }: { params: Promise<{ key: str
   const voteKey = decodeURIComponent(key).slice(0, idx)
   const bioguide = decodeURIComponent(key).slice(idx + 2)
 
-  const { data } = await db.from('trail_full').select('*')
-    .eq('vote_key', voteKey).eq('bioguide', bioguide).single()
+  // Scoped to the published cycle and taking the first row rather than
+  // `.single()`. A (vote_key, bioguide) pair is unique *within* a cycle, not
+  // across them — `.single()` throws when a query returns two rows, so the day
+  // earlier cycles get back-filled this would have 500'd every trail page on
+  // the site at once. The cycle filter makes it unique; the limit makes it
+  // survive being wrong about that.
+  const { data: rows } = await db.from('trail_full').select('*')
+    .eq('vote_key', voteKey).eq('bioguide', bioguide).eq('cycle', CYCLE).limit(1)
+  const data = (rows || [])[0]
   if (!data) notFound()
   const t = data as unknown as Trail
 

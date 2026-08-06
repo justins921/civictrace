@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { db, money, partyLetter, labelClass, trailHref, LABELS, isYes, hrefFor } from '@/lib/db'
+import { db, money, partyLetter, labelClass, trailHref, LABELS, isYes, hrefFor, labelCounts, CYCLE } from '@/lib/db'
 import { Gauge } from '@/components/Gauge'
 
 const PER_PAGE = 60
@@ -17,32 +17,19 @@ export default async function Trails({ searchParams }:
   // of the 591 is now reachable. `rank` is unique per trail, so the sort is
   // stable across pages — an unstable sort silently drops and repeats rows when
   // you page through it.
-  let qy = db.from('trail_full').select('*', { count: 'exact' }).order('rank')
+  let qy = db.from('trail_full').select('*', { count: 'exact' }).eq('cycle', CYCLE).order('rank')
   if (sp.label) qy = qy.eq('label', sp.label)
   if (sp.member) qy = qy.eq('slug', sp.member)
   qy = qy.range((page - 1) * PER_PAGE, page * PER_PAGE - 1)
 
-  // Label counts come back as counts, not as rows to be counted here.
-  //
-  // This used to be `select('label')` over the whole table, tallied in JS. That
-  // is fine until the table passes PostgREST's 1000-row ceiling, which it did
-  // the moment the House vote backfill landed: the lede read "1000 member-vote
-  // pairs" while the pagination directly below it read "1,032 trails", and the
-  // label percentages were computed from a truncated sample presented as the
-  // whole. Same defect as the cross-cycle total — a figure that is only correct
-  // while the data stays small.
-  const [{ data: trails, count: matched }, labelCounts, { count: grandTotal },
-         { data: sym }, { data: members }] = await Promise.all([
+  const [{ data: trails, count: matched }, labels, { data: sym }, { data: members }] =
+    await Promise.all([
     qy,
-    Promise.all(LABELS.map(async (l: string) => {
-      const { count } = await db.from('money_trail')
-        .select('label', { count: 'exact', head: true }).eq('label', l)
-      return [l, count || 0] as const
-    })),
-    db.from('money_trail').select('label', { count: 'exact', head: true }),
+    labelCounts(),   // shared with the home page — see lib/db.ts
     db.from('label_symmetry').select('*'),
     db.from('member').select('slug,full_name,party').order('full_name'),
   ])
+
 
   const shown = (trails || []).length
   const totalMatched = matched || 0
@@ -56,12 +43,8 @@ export default async function Trails({ searchParams }:
     return q ? `/trails?${q}` : '/trails'
   }
 
-  const counts: Record<string, number> = Object.fromEntries(labelCounts)
-  const total = grandTotal || 0
-  // If the labels ever stop partitioning the table, the breakdown below is
-  // describing something other than the total printed beside it.
-  const labelled = labelCounts.reduce((a, [, n]) => a + n, 0)
-  const labelsPartition = labelled === total
+  const { counts, total, partitions: labelsPartition } = labels
+  const labelled = Object.values(counts).reduce((a, n) => a + n, 0)
 
   const byParty: Record<string, number> = {}
   for (const s of sym || []) byParty[s.party] = (byParty[s.party] || 0) + Number(s.n)

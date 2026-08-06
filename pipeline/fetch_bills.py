@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Pull GovInfo BILLSTATUS XML for every bill that appears in a stored roll call."""
-import re, sys, time, collections, sqlite3, urllib.request, urllib.error, xml.etree.ElementTree as ET
+import re, sys, json, time, collections, sqlite3, urllib.request, urllib.error, xml.etree.ElementTree as ET
 from pathlib import Path
 
 UA = "CivicTrace/0.1 (nonpartisan public-records prototype)"
@@ -22,6 +22,10 @@ CREATE TABLE bill (
 # Getting this wrong is why the Senate produced no trails at all until Aug 2026.
 TYPES = {"HR": "hr", "S": "s", "HRES": "hres", "SRES": "sres",
          "HJRES": "hjres", "SJRES": "sjres", "HCONRES": "hconres", "SCONRES": "sconres"}
+
+# Above this share of the work list, "GovInfo is running late" stops being a
+# credible explanation and something structural has changed.
+ABSENT_TOLERANCE = 0.02
 
 
 def fetch_with_retry(url, attempts=4):
@@ -75,7 +79,8 @@ def main():
             skipped.append(legis); continue
         wanted[f"{congress}{p[0]}{p[1]}"] = (congress, p[0], p[1])
 
-    unreachable = []
+    unreachable = []   # our problem: transport errors, unparseable XML
+    absent = []        # GovInfo's schedule: an authoritative 404
     done = 0
     for key, (congress, bt, bn) in sorted(wanted.items()):
         f = RAW / f"BILLSTATUS-{key}.xml"
@@ -86,9 +91,14 @@ def main():
                 time.sleep(0.4)
             except urllib.error.HTTPError as e:
                 if e.code == 404:
-                    # GovInfo genuinely has no BILLSTATUS for this one. That is a
-                    # fact about the record, not a failure of ours.
-                    unreachable.append(f"{key} (404, no BILLSTATUS published)")
+                    # GovInfo has no BILLSTATUS for this one. That is a fact
+                    # about their publishing schedule, not a break in our
+                    # pipeline — GovInfo routinely lags recently-passed bills by
+                    # days. The previous version said exactly this in a comment
+                    # and then exited 1 anyway, which would have blocked every
+                    # refresh indefinitely, with no override, the first time a
+                    # roll call cited a bill they had not published yet.
+                    absent.append(key)
                 else:
                     unreachable.append(f"{key} (HTTP {e.code})")
                 continue
@@ -126,9 +136,32 @@ def main():
         print(r)
     con.close()
 
-    # A bill we could not fetch is a bill page that will render with no title,
-    # no summary and no sponsor. Publishing that is worse than not refreshing,
-    # so the run stops here — same rule the vote fetcher follows.
+    # Two populations, two rules.
+    #
+    # A bill we could not *fetch* is our problem: the page would render with no
+    # title, no summary and no sponsor, so the run stops. A bill GovInfo has not
+    # *published* is theirs, and blocking the whole refresh on their release
+    # schedule would leave a stale site behind a footer that says nothing is
+    # wrong — the failure mode this gate exists to prevent, arrived at from the
+    # other direction. Those are recorded and the run continues, but only up to
+    # a threshold: past ABSENT_TOLERANCE something has changed at GovInfo and
+    # "a few bills are pending" is no longer the right explanation.
+    if absent:
+        (Path(__file__).parent / "data" / "known_gaps.json").write_text(
+            json.dumps({"missing_billstatus": sorted(absent)}, indent=1))
+        print(f"\n{len(absent)} bill(s) have no BILLSTATUS published by GovInfo yet "
+              f"({100 * len(absent) / max(1, len(wanted)):.1f}% of the work list). "
+              f"Recorded in data/known_gaps.json; the refresh continues.")
+        for a in sorted(absent)[:10]:
+            print("  - " + a)
+
+    share = len(absent) / max(1, len(wanted))
+    if share > ABSENT_TOLERANCE:
+        print(f"\n{len(absent)} of {len(wanted)} bills ({share:.0%}) have no BILLSTATUS. "
+              f"That is past the {ABSENT_TOLERANCE:.0%} threshold — this looks like a change "
+              f"at GovInfo, not a publishing lag. Refusing to publish.", file=sys.stderr)
+        sys.exit(1)
+
     if unreachable:
         print(f"\n{len(unreachable)} bill(s) could not be loaded:", file=sys.stderr)
         for u in unreachable:

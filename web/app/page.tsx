@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { db, money, shortMoney, partyLetter, officeLine, labelClass, trailHref } from '@/lib/db'
+import { db, money, shortMoney, partyLetter, officeLine, labelClass, trailHref, labelCounts, CYCLE } from '@/lib/db'
 import { Sleuth, DonorArt, CapitolArt, BillArt } from '@/components/Art'
 
 export const revalidate = 3600
@@ -11,18 +11,23 @@ const pct = (n: number, d: number) => {
 }
 
 export default async function Home() {
-  const [{ data: members }, { data: trails }, { data: labels }, { data: agg }, { count: rc }] =
+  // These numbers are the site's headline statistic, and they have to be the
+  // same numbers /trails prints. They were not: this page ran
+  // `select('label')` unbounded and counted the rows, PostgREST capped the
+  // response at 1000 of 1,032, and the truncation landed almost entirely in one
+  // bucket — the home page advertised 56 "Some overlap" trails against the real
+  // 88, and a total of a suspiciously round 1000. Both pages now call the same
+  // helper, so they cannot disagree again without both being wrong together.
+  const [{ data: members }, { data: trails }, labels, { data: agg }, { count: rc }] =
     await Promise.all([
       db.from('member').select('*').order('chamber', { ascending: false }).order('district'),
-      db.from('trail_full').select('*').order('rank').limit(3),
-      db.from('money_trail').select('label'),
+      db.from('trail_full').select('*').eq('cycle', CYCLE).order('rank').limit(3),
+      labelCounts(),
       db.from('earmark_agg').select('*'),
       db.from('rollcall').select('*', { count: 'exact', head: true }),
     ])
 
-  const counts: Record<string, number> = {}
-  for (const l of labels || []) counts[l.label] = (counts[l.label] || 0) + 1
-  const total = (labels || []).length
+  const { counts, total } = labels
   const nat = (agg || []).find((a: any) => a.scope === 'national')
 
   return (
@@ -52,7 +57,7 @@ export default async function Home() {
           {[
             ['Members traced', String((members || []).length), 'Wisconsin’s federal delegation'],
             ['Roll call votes', String(rc || 0), '119th Congress, both chambers'],
-            ['Money trails built', String(total), 'money-and-vote overlaps examined'],
+            ['Money trails built', total.toLocaleString(), 'money-and-vote overlaps examined'],
             ['Earmark requests', Number(nat?.n || 0).toLocaleString(), `${shortMoney(nat?.total)} nationally, FY2026`],
           ].map(([k, v, s]) => (
             <div className="card" key={k}>
@@ -66,7 +71,7 @@ export default async function Home() {
         {/* The honesty panel, on the front page on purpose. */}
         <h2 className="section">What the engine actually concluded</h2>
         <p className="lede">
-          This is the number most transparency tools bury. Out of {total} money-and-vote overlaps in
+          This is the number most transparency tools bury. Out of {total.toLocaleString()} money-and-vote overlaps in
           Wisconsin&apos;s delegation, almost all of them turn out to mean nothing — the vote was
           near-unanimous, or the member simply voted with their party. A tool that produced a scandal
           from every one of these would be lying to you.

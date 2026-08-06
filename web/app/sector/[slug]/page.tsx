@@ -18,14 +18,19 @@ export default async function Sector({ params }: { params: Promise<{ slug: strin
   if (!prof) notFound()
   const sector = prof.sector
 
-  const [{ data: cmtes }, { data: recips }, { data: bills }, { data: trailsRaw }] = await Promise.all([
+  const [{ data: cmtes }, { data: recips }, { data: bills }, { data: trailsRaw, count: trailCount, error: trailErr }] = await Promise.all([
     db.from('committee_profile').select('*').eq('sector', sector).eq('cycle', CYCLE)
       .gt('payments_to_wi', 0)
       .order('total_to_wi', { ascending: false }).order('cmte_id', { ascending: true }).limit(40),
     db.from('sector_members').select('*').eq('sector_slug', slug).eq('cycle', CYCLE)
       .order('total', { ascending: false }).order('bioguide', { ascending: true }),
     db.from('bill_sector').select('*, bill(*)').eq('sector', sector),
-    db.from('trail_full').select('*').order('rank').limit(300),
+    // Same fix as /committee: matched in the database over every trail, not
+    // searched in JS inside an arbitrary 300-row window.
+    db.from('trail_full').select('*', { count: 'exact' })
+            // See the note on /committee: a jsonb `cs` filter needs a JSON string.
+      .contains('sectors', JSON.stringify([{ sector }]))
+      .eq('cycle', CYCLE).order('rank').limit(9),
   ])
 
   // Read from the canonical per-sector member view, never derived from the
@@ -34,8 +39,9 @@ export default async function Sector({ params }: { params: Promise<{ slug: strin
   const members = (recips || []).map((r: any) => ({ ...r, total: Number(r.total) }))
   const maxMember = members[0]?.total || 1
 
-  const trails = (trailsRaw || []).filter((t: any) =>
-    (t.sectors || []).some((s: any) => s.sector === sector)).slice(0, 9)
+  if (trailErr) throw new Error(`sector trails query failed: ${trailErr.message}`)
+  const trails = trailsRaw || []
+  const trailTotal = trailCount || 0
 
   const sides: Record<string, number> = {}
   for (const c of cmtes || []) {
@@ -165,6 +171,12 @@ export default async function Sector({ params }: { params: Promise<{ slug: strin
       {trails.length > 0 && (
         <>
           <h2 className="section">Money trails in this sector</h2>
+          {trailTotal > trails.length && (
+            <p className="lede small">
+              Showing {trails.length} of <strong>{trailTotal.toLocaleString()}</strong> trails in
+              this sector; the rest are on <Link href="/trails">the trails page</Link>.
+            </p>
+          )}
           <div className="grid g3">
             {trails.map((t: any) => (
               <Link key={t.vote_key + t.bioguide} href={trailHref(t)} className="card"

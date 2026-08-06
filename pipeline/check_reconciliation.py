@@ -20,13 +20,57 @@ KEY = os.environ.get("SUPABASE_ANON_KEY",
                      "sb_publishable_962AMHB-5EccIqag-UyHEQ_hl5Rd4_V")
 
 
-def q(path):
+LABELS = ["Notable overlap", "Some overlap",
+          "Party-line vote — low signal", "Near-unanimous vote — no signal"]
+
+# PAGE must stay at or below PostgREST's server-side max-rows, or every page
+# after the first silently returns short and the walk below stops early.
+PAGE = 1000
+
+
+def q(path, headers=None, want_range=False):
     req = urllib.request.Request(
         f"{URL}/rest/v1/{path}",
         headers={"apikey": KEY, "Authorization": f"Bearer {KEY}",
-                 "Accept-Profile": "civictrace"})
+                 "Accept-Profile": "civictrace", **(headers or {})})
     with urllib.request.urlopen(req, timeout=60) as r:
-        return json.loads(r.read().decode())
+        body = r.read().decode()
+        if want_range:
+            return json.loads(body) if body.strip() else [], r.headers.get("Content-Range", "")
+        return json.loads(body)
+
+
+def count_of(path):
+    """Row count from Postgres, transferring no rows.
+
+    This file previously did `len(q(...))` and `sum(... for x in q(...))` on
+    unbounded collections. PostgREST caps those at 1000 rows, so the all-cycle
+    sum was computed from 1000 of 1,991 committees: the assertion still passed,
+    but on a number that meant nothing, and the figure it would have printed on
+    failure was fiction. A check whose evidence is wrong is not a check.
+    """
+    _, rng = q(path, {"Prefer": "count=exact", "Range": "0-0"}, want_range=True)
+    if "/" not in rng:
+        raise RuntimeError(f"no row count returned for {path}")
+    return int(rng.rsplit("/", 1)[-1])
+
+
+def sum_all(path, field):
+    """Sum a column across every matching row, paging until the source is dry.
+
+    Never sum a PostgREST collection response without bounding it — the whole
+    point of this helper is that the bound is explicit and the walk is complete.
+    """
+    total, offset, expected = 0.0, 0, count_of(path)
+    while offset < expected:
+        rows, _ = q(path, {"Range": f"{offset}-{offset + PAGE - 1}"}, want_range=True)
+        if not rows:
+            raise RuntimeError(f"{path}: paging stalled at {offset} of {expected}")
+        total += sum(float(x[field]) for x in rows)
+        offset += len(rows)
+    if offset != expected:
+        raise RuntimeError(f"{path}: walked {offset} rows, expected {expected}")
+    return round(total, 2)
 
 
 failures = []
@@ -79,24 +123,34 @@ def main():
     # on every run and asserted nothing. The invariant it was meant to enforce is
     # that other cycles exist in the database but never leak into a figure the
     # published cycle claims, so it has to be stated as two facts, both checkable.
-    other = q(f"committee_profile?select=cmte_id,total_to_wi&cycle=neq.{cyc}&payments_to_wi=gt.0")
+    n_other = count_of(f"committee_profile?select=cmte_id&cycle=neq.{cyc}&payments_to_wi=gt.0")
     require("other cycles are present in the database (otherwise this check is vacuous)",
-            len(other) > 0, f"{len(other)} rows outside cycle {cyc}")
+            n_other > 0, f"{n_other} rows outside cycle {cyc}")
 
     # If the grand total were being computed across cycles, it would equal the
     # all-cycle sum rather than this cycle's. Prove it does not.
-    every = q("committee_profile?select=total_to_wi&payments_to_wi=gt.0")
-    all_cycles = round(sum(float(x["total_to_wi"]) for x in every), 2)
+    all_cycles = sum_all("committee_profile?select=total_to_wi&payments_to_wi=gt.0",
+                         "total_to_wi")
     this_cycle = round(float(r["via_contrib"]), 2)
     require("the grand total is this cycle only, not every cycle summed",
-            f"{all_cycles:.2f}" != f"{this_cycle:.2f}" or not other,
+            f"{all_cycles:.2f}" != f"{this_cycle:.2f}" or not n_other,
             f"cycle {cyc} = {this_cycle}, all cycles = {all_cycles}")
 
     # And the published cycle's own committee rows must add to it exactly.
-    mine = q(f"committee_profile?select=total_to_wi&cycle=eq.{cyc}&payments_to_wi=gt.0")
-    msum = round(sum(float(x["total_to_wi"]) for x in mine), 2)
+    msum = sum_all(f"committee_profile?select=total_to_wi&cycle=eq.{cyc}&payments_to_wi=gt.0",
+                   "total_to_wi")
     require("committee rows in the published cycle sum to the grand total",
             f"{msum:.2f}" == f"{this_cycle:.2f}", f"{msum} vs {this_cycle}")
+
+    # The label breakdown on / and /trails is presented as a partition of the
+    # trail total. If it stops being one, both pages print a breakdown that does
+    # not add up to the number beside it.
+    n_trails = count_of(f"money_trail?select=vote_key&cycle=eq.{cyc}")
+    per_label = {l: count_of(f"money_trail?select=vote_key&cycle=eq.{cyc}"
+                             f"&label=eq.{urllib.parse.quote(l)}") for l in LABELS}
+    require("trail labels partition the trail total",
+            sum(per_label.values()) == n_trails,
+            f"labels sum to {sum(per_label.values())} vs {n_trails} trails: {per_label}")
 
     print()
     if failures:

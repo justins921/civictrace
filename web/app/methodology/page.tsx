@@ -29,7 +29,7 @@ export default async function Methodology() {
       db.from('vote_position').select('*', { count: 'exact', head: true }),
       db.from('bill').select('*', { count: 'exact', head: true }),
       db.from('earmark').select('*', { count: 'exact', head: true }),
-      db.from('money_trail').select('*', { count: 'exact', head: true }),
+      db.from('money_trail').select('*', { count: 'exact', head: true }).eq('cycle', CYCLE),
       db.from('reconciliation').select('*').single(),
     ])
   const cmtes = Number(recon?.committees_listed ?? 0)

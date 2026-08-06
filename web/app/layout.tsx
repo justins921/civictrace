@@ -99,4 +99,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     </html>
   )
 }
-export const revalidate = 900
+/* The layout's revalidate is the floor for every route beneath it, so this line
+   silently overrode the 3600 each page sets for itself — 96 regenerations a day
+   against one daily data refresh. Matched to the pages it wraps; the footer's
+   freshness line comes from `data_freshness`, which is read on each render, so
+   nothing about staleness reporting depends on regenerating more often. */
+export const revalidate = 3600
