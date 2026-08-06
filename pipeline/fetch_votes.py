@@ -34,25 +34,55 @@ ABSENT = object()      # authoritative 404 — this roll call does not exist
 FAILED = object()      # we could not reach it; already recorded in MISSES
 
 
+REVALIDATED = [0]     # how many cached files the server told us to replace
+
+
 def get(url, cache, attempts=4):
-    """Fetch with retries. Returns bytes, ABSENT (404), or FAILED.
+    """Fetch with retries and revalidation. Returns bytes, ABSENT (404), or FAILED.
 
     The Senate's XML endpoint drops TLS handshakes often enough that a single
     attempt loses a handful of roll calls per run. Three missing votes out of 356
     is under any sane shrink threshold, so it would have published quietly with
     holes in the vote record — the worst possible failure for this site. Retry,
     then fail loudly rather than silently serve less than we had yesterday.
+
+    M17. This used to return the cached bytes the moment the file existed, and
+    never ask again. The Clerk and the Senate both amend published roll calls —
+    corrected vote positions, corrected totals, corrected bill numbers — so a
+    file downloaded once was frozen at whatever it said that day, permanently,
+    with no way to notice. The docstring at the top of daily_update.py claims
+    this pipeline is "a full rebuild, not a diff" precisely because sources get
+    amended after publication, and this function was quietly making that untrue.
+
+    Every cached file is now revalidated with a conditional request. A 304 is
+    the common case, costs one round trip and no body, and takes no rate-limit
+    sleep — the sleep is for downloads, and a 304 is not one.
     """
     p = RAW / cache
-    if p.exists() and p.stat().st_size > 0:
-        return p.read_bytes()
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    cached = p.read_bytes() if p.exists() and p.stat().st_size > 0 else None
+
+    headers = {"User-Agent": UA}
+    if cached is not None:
+        headers["If-Modified-Since"] = time.strftime(
+            "%a, %d %b %Y %H:%M:%S GMT", time.gmtime(p.stat().st_mtime))
+
+    last = None
     for attempt in range(attempts):
         try:
+            req = urllib.request.Request(url, headers=headers)
             b = urllib.request.urlopen(req, timeout=45).read()
-            p.write_bytes(b); time.sleep(0.7)
+            # Write through a temp file: a half-written XML with a fresh mtime
+            # would revalidate as current forever. Same trap as the FEC archives.
+            tmp = p.with_suffix(p.suffix + ".part")
+            tmp.write_bytes(b)
+            os.replace(tmp, p)
+            if cached is not None and b != cached:
+                REVALIDATED[0] += 1
+            time.sleep(0.7)
             return b
         except urllib.error.HTTPError as e:
+            if e.code == 304:                 # unchanged since we stored it
+                return cached
             if e.code == 404:                 # genuinely not there; not an outage
                 return ABSENT
             last = e
@@ -60,6 +90,13 @@ def get(url, cache, attempts=4):
             last = e
         if attempt < attempts - 1:
             time.sleep(1.5 * (2 ** attempt))  # 1.5s, 3s, 6s
+
+    # Falling back to a stale copy beats losing the roll call, but only if the
+    # run says so — a silent fallback is how "we have every vote" becomes false.
+    if cached is not None:
+        print(f"  !! could not revalidate, using cached copy: {url}: {last}")
+        MISSES.append(f"{url} (served stale)")
+        return cached
     print(f"  !! gave up after {attempts} attempts: {url}: {last}")
     MISSES.append(url)
     return FAILED
@@ -216,6 +253,7 @@ if __name__ == "__main__":
     con.commit()
     print(c.execute("SELECT COUNT(*) FROM rollcall").fetchone(),
           c.execute("SELECT COUNT(*) FROM vote_position").fetchone())
+    print(f"revalidated and changed since last run: {REVALIDATED[0]}")
     con.close()
     if MISSES:
         # Exit non-zero so the refresh aborts before publishing. A vote record

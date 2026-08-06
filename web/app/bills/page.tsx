@@ -70,8 +70,9 @@ export default async function Bills() {
           The delegation cast <strong>{allRolls.length.toLocaleString()}</strong> recorded votes in
           total. The other <strong>{otherVotes.toLocaleString()}</strong> were not votes on bills
           — {nominations.toLocaleString()} on nominations, {amendments.toLocaleString()} on
-          amendments, and the rest procedural. They appear on each member&apos;s page but have no
-          bill page here, because there is no bill.
+          amendments, and the rest procedural. Each one now has its own page under{' '}
+          <Link href="/votes">every recorded vote</Link> — they have no bill page here because
+          there is no bill, not because we dropped them.
         </p>
       )}
 

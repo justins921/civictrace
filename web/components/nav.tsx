@@ -18,6 +18,7 @@ export const ENTITY_NAV = [
 ]
 
 export const SUB_NAV = [
+  { href: '/votes', label: 'Every vote' },
   { href: '/methodology', label: 'Methodology' },
   { href: '/methodology#sources', label: 'Data sources' },
   { href: '/corrections', label: 'Corrections' },

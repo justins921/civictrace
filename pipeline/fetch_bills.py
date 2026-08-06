@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Pull GovInfo BILLSTATUS XML for every bill that appears in a stored roll call."""
-import re, sys, json, time, collections, sqlite3, urllib.request, urllib.error, xml.etree.ElementTree as ET
+import re, os, sys, json, time, collections, sqlite3, urllib.request, urllib.error, xml.etree.ElementTree as ET
 from pathlib import Path
 
 UA = "CivicTrace/0.1 (nonpartisan public-records prototype)"
@@ -44,15 +44,31 @@ TYPES = {"HR": "hr", "S": "s", "HRES": "hres", "SRES": "sres",
 ABSENT_TOLERANCE = 0.02
 
 
-def fetch_with_retry(url, attempts=4):
+NOT_MODIFIED = object()
+REVALIDATED = [0]
+
+
+def fetch_with_retry(url, attempts=4, since=None):
     """Same reasoning as the vote fetcher: a transient network failure must not
-    quietly become a missing bill."""
+    quietly become a missing bill.
+
+    M17: `since` makes this a conditional request. GovInfo republishes
+    BILLSTATUS as a bill moves — new actions, new cosponsors, a CRS summary that
+    did not exist when we first fetched it. Downloading once and never asking
+    again meant a bill page could sit on a summary that had since been written,
+    or a cosponsor list from before half the cosponsors signed on."""
     last = None
+    headers = {"User-Agent": UA}
+    if since:
+        headers["If-Modified-Since"] = time.strftime(
+            "%a, %d %b %Y %H:%M:%S GMT", time.gmtime(since))
     for attempt in range(attempts):
         try:
             return urllib.request.urlopen(
-                urllib.request.Request(url, headers={"User-Agent": UA}), timeout=45).read()
+                urllib.request.Request(url, headers=headers), timeout=45).read()
         except urllib.error.HTTPError as e:
+            if e.code == 304:
+                return NOT_MODIFIED
             if e.code == 404:
                 raise
             last = e
@@ -102,25 +118,40 @@ def main():
     for key, (congress, bt, bn) in sorted(wanted.items()):
         f = RAW / f"BILLSTATUS-{key}.xml"
         url = f"https://www.govinfo.gov/bulkdata/BILLSTATUS/{congress}/{bt}/BILLSTATUS-{key}.xml"
-        if not f.exists():
-            try:
-                f.write_bytes(fetch_with_retry(url))
+        try:
+            body = fetch_with_retry(url, since=f.stat().st_mtime if f.exists() else None)
+            if body is not NOT_MODIFIED:
+                before = f.read_bytes() if f.exists() else None
+                tmp = f.with_suffix(f.suffix + ".part")
+                tmp.write_bytes(body)
+                os.replace(tmp, f)
+                if before is not None and before != body:
+                    REVALIDATED[0] += 1
                 time.sleep(0.4)
-            except urllib.error.HTTPError as e:
-                if e.code == 404:
-                    # GovInfo has no BILLSTATUS for this one. That is a fact
-                    # about their publishing schedule, not a break in our
-                    # pipeline — GovInfo routinely lags recently-passed bills by
-                    # days. The previous version said exactly this in a comment
-                    # and then exited 1 anyway, which would have blocked every
-                    # refresh indefinitely, with no override, the first time a
-                    # roll call cited a bill they had not published yet.
-                    absent.append(key)
-                else:
-                    unreachable.append(f"{key} (HTTP {e.code})")
+        except urllib.error.HTTPError as e:
+            if f.exists():
+                # We already hold a copy. A failed revalidation degrades the
+                # freshness of one bill; it does not lose it, so the run goes on
+                # with what we have rather than blocking on GovInfo's uptime.
+                print(f"  .. could not revalidate {key} (HTTP {e.code}), using cached copy")
+            elif e.code == 404:
+                # GovInfo has no BILLSTATUS for this one. That is a fact about
+                # their publishing schedule, not a break in our pipeline —
+                # GovInfo routinely lags recently-passed bills by days. The
+                # version before this said exactly that in a comment and then
+                # exited 1 anyway, which would have blocked every refresh
+                # indefinitely the first time a roll call cited a bill they had
+                # not published yet.
+                absent.append(key)
                 continue
-            except Exception as e:
-                unreachable.append(f"{key} ({e})"); continue
+            else:
+                unreachable.append(f"{key} (HTTP {e.code})")
+                continue
+        except Exception as e:
+            if not f.exists():
+                unreachable.append(f"{key} ({e})")
+                continue
+            print(f"  .. could not revalidate {key} ({e}), using cached copy")
         try: b = ET.parse(f).getroot().find("bill")
         except Exception as e:
             unreachable.append(f"{key} (unparseable XML: {e})"); continue
@@ -169,6 +200,7 @@ def main():
         else "amendment" if "AMDT" in (s or "").upper()
         else "procedural" for s in skipped)
     print(f"bills stored: {done} of {len(wanted)} distinct bills referenced by a roll call")
+    print(f"  revalidated and changed since last run: {REVALIDATED[0]}")
     wi = {r[0] for r in c.execute("SELECT bioguide FROM member WHERE state='WI'")}
     wi_n = c.execute("SELECT COUNT(*) FROM bill_sponsor WHERE bioguide IN (%s)"
                      % ",".join("?" * len(wi)), tuple(wi)).fetchone()[0] if wi else 0

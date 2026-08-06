@@ -8,7 +8,7 @@ inferred data, it is the members' own filings. CivicTrace's job is to make them
 countable and comparable, not to call any of them wasteful. Whether a $2M
 airport runway is pork or infrastructure is a judgement the reader makes.
 """
-import re, sqlite3, openpyxl
+import re, sqlite3, unicodedata, openpyxl
 from pathlib import Path
 
 BASE = Path(__file__).parent
@@ -29,12 +29,30 @@ CREATE INDEX ix_ear_bio ON earmark(bioguide);
 SRC = ("https://appropriations.house.gov/sites/evo-subsites/republicans-appropriations."
        "house.gov/files/evo-media-document/fy26-house-cpf-consolidated.xlsx")
 
+# M14. The House file writes member names in plain ASCII and the roster carries
+# them properly, so "Barragán" never matched "Barragan" and 204 of 5,414 earmarks
+# were attributed to nobody. Hyphenated surnames, dropped middle names
+# ("Marjorie Taylor Greene" filed as "Marjorie Greene") and apostrophes cost the
+# rest. Fold everything to a comparable form before keying.
+def fold(s):
+    """Strip accents, punctuation and case. 'Cherfilus-McCormick' -> 'CHERFILUSMCCORMICK'."""
+    s = unicodedata.normalize("NFKD", str(s or ""))
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return re.sub(r"[^A-Za-z]", "", s).upper()
+
+
 # name -> bioguide, built from the roster we already loaded
 roster = {}
 for b, last, first, st, dist in c.execute(
         "SELECT bioguide, last, first, state, district FROM member WHERE chamber='rep'"):
-    roster[(last.upper(), st, str(dist))] = b
-    roster.setdefault((last.upper(), first.upper()), b)
+    lf, ff = fold(last), fold(first)
+    roster[(lf, st, str(dist))] = b
+    roster.setdefault((lf, ff), b)
+    roster.setdefault((lf, st), b)          # unique in all but a handful of states
+    # First names are filed as they are used, not as they are registered, so
+    # index the first token of each too: "Marjorie Taylor" also answers to
+    # "Marjorie", "Jesus" to "Jesús" once folded.
+    roster.setdefault((lf, ff.split()[0] if ff else ff), b)
 
 wb = openpyxl.load_workbook(BASE / "data" / "cpf_fy26.xlsx", read_only=True)
 ws = wb[wb.sheetnames[0]]
@@ -48,7 +66,13 @@ for r in rows:
     m = re.match(r"^([A-Z]{2})(\d+|AL)$", dist)
     st, dnum = (m.group(1), m.group(2)) if m else (None, None)
     if dnum and dnum != "AL": dnum = str(int(dnum))
-    bio = roster.get((str(last).upper(), st, dnum)) or roster.get((str(last).upper(), str(first).upper()))
+    lf, ff = fold(last), fold(first)
+    # Most specific first: surname + state + district is unambiguous. Surname +
+    # first name next. Surname + state last, because two members of the same
+    # state can share a surname and a wrong attribution is worse than none.
+    bio = (roster.get((lf, st, dnum))
+           or roster.get((lf, ff))
+           or roster.get((lf, st)))
     if isinstance(url, str):
         u = re.search(r'"(https?://[^"]+)"', url)
         url = u.group(1) if u else url
@@ -75,7 +99,11 @@ print(f"Senate vote positions relinked to bioguide ids: {fixed}")
 # ---- fix 2: flag omnibus / broad bills as unsuitable for sector alignment ----
 # An appropriations bill touches every sector, so 'sector share of PAC money' is
 # meaningless for it. Flagging is better than silently producing a bad number.
-c.execute("ALTER TABLE bill ADD COLUMN is_broad INTEGER DEFAULT 0")
+# Idempotent: fetch_bills.py recreates `bill` on a full pipeline run, but this
+# script is also runnable on its own and a second run should not die on a column
+# it added itself.
+if "is_broad" not in {r[1] for r in c.execute("PRAGMA table_info(bill)")}:
+    c.execute("ALTER TABLE bill ADD COLUMN is_broad INTEGER DEFAULT 0")
 c.execute("""UPDATE bill SET is_broad=1 WHERE
    title LIKE '%Appropriations%' OR title LIKE '%Consolidated%'
    OR title LIKE '%continuing resolution%' OR title LIKE '%Making further%'

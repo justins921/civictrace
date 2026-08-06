@@ -101,6 +101,16 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
         </div>
       </div>
 
+      {receipts === 0 && (
+        <div className="note" style={{ marginTop: 16 }}>
+          <strong>We could not resolve this member&apos;s FEC filings, so the figures below are
+          incomplete rather than low.</strong> A member whose candidate ID we fail to match looks
+          identical on this page to a member who genuinely received nothing, and those are not the
+          same fact. Please <Link href="/contact">tell us</Link> — this is a bug on our side, not a
+          finding about the member.
+        </div>
+      )}
+
       {receipts > 0 && (
         <div className="note" style={{ marginTop: 16 }}>
           <strong>How much of this member&apos;s money you are looking at:{' '}
