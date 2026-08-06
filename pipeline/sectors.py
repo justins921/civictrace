@@ -61,10 +61,81 @@ PAC_RULES = [
 
     ("S01", "Small Business & Retail", r"\b(NFIB|SMALL BUSINESS|RETAIL FEDERATION|RETAIL LEADERS|FRANCHISE|CONVENIENCE STORES|WHOLESALER|DISTRIBUTORS|CHAMBER OF COMMERCE)\b", "business associations"),
 
-    ("G01", "Guns & Public Safety", r"\b(NATIONAL RIFLE|NRA |GUN OWNERS|FIREARMS|SPORTING SHOOTING|SAFARI CLUB|EVERYTOWN|GIFFORDS|BRADY)\b", "firearms policy"),
+    # Two rules, not one. G01 used to match the NRA and Everytown with the same
+    # pattern and give both the side "firearms policy" — a label that treats the
+    # two organisations most opposed to each other in American politics as
+    # occupying the same position. Order matters: gun-violence-prevention groups
+    # are matched first, because "FIREARMS" appears in the names of groups on
+    # both sides and the broad pattern would otherwise swallow them.
+    ("G01", "Guns & Public Safety", r"\b(EVERYTOWN|GIFFORDS|BRADY CAMPAIGN|BRADY PAC|MARCH FOR OUR LIVES|MOMS DEMAND)\b", "gun violence prevention"),
+    ("G02", "Guns & Public Safety", r"\b(NATIONAL RIFLE|NRA |GUN OWNERS|FIREARMS|SPORTING SHOOTING|SAFARI CLUB|NATIONAL SHOOTING SPORTS)\b", "gun rights"),
     ("I01", "Foreign Policy", r"\b(AMERICAN ISRAEL PUBLIC AFFAIRS|AIPAC|J STREET|ARMENIAN|HELLENIC|INDIA POLITICAL|TURKISH)\b", "foreign policy advocacy"),
     ("J01", "Legal", r"\b(TRIAL LAWYERS|ASSOCIATION FOR JUSTICE|BAR ASSOCIATION|ATTORNEYS|LAW FIRM)\b", "legal profession"),
 ]
+
+# --------------------------------------------------------------- interest axes
+#
+# C2, from the August 2026 outside review. `interest_side` recorded *what kind*
+# of giver a committee is, but nothing recorded which sides are opposed to which
+# — so `OPPOSING` in trail.py was a hand-written one-element set and every sector
+# except Energy reported $0 opposing money by construction. A zero that can only
+# ever be zero is not evidence of anything.
+#
+# An axis is only declared where two organised constituencies genuinely lobby
+# against each other on the same bills, and where CivicTrace can name them
+# without making a political judgement. Everything not listed here has no axis,
+# and the trail pages say "no opposing side is classified for this industry"
+# rather than printing a $0 that reads like a finding.
+#
+# Deliberately NOT declared, and why:
+#   Agriculture     producers vs processors do fight over packer concentration,
+#                   but they are on the same side of most farm-bill votes.
+#   Labor / Legal   their opponents sit in other sectors (business associations,
+#                   tort reform), and this axis is within-sector by construction.
+#   Tech, Defense,  no organised counter-constituency appears in FEC committee
+#   Transportation  giving to this delegation at all.
+#
+# Sides that exist in a sector with an axis but sit on neither pole are recorded
+# as unaligned, not silently folded into one side. Nuclear and biofuels are the
+# live examples: both are contested ground in energy politics and putting them
+# on a pole would be an editorial call, not a classification.
+SECTOR_AXIS = {
+    "Energy & Utilities": {
+        "axis": "carbon-intensive energy vs climate and conservation advocacy",
+        "poles": {
+            "carbon-intensive energy": ["utility", "oil & gas", "mining"],
+            "climate & conservation": ["clean energy / environment"],
+        },
+        "unaligned_note": "Nuclear and biofuel committees are recorded but placed on "
+                          "neither pole: both are contested ground in energy politics.",
+    },
+    "Health Care": {
+        "axis": "payers vs providers",
+        "poles": {
+            "payers": ["health insurers"],
+            "providers": ["providers"],
+        },
+        "unaligned_note": "Pharmaceutical, device and pharmacy committees are recorded "
+                          "but placed on neither pole: their fights run across this axis "
+                          "rather than along it.",
+    },
+    "Guns & Public Safety": {
+        "axis": "gun rights vs gun violence prevention",
+        "poles": {
+            "gun rights": ["gun rights"],
+            "gun violence prevention": ["gun violence prevention"],
+        },
+        "unaligned_note": "",
+    },
+}
+
+# side -> (sector, pole). Built once so the trail engine never re-derives it.
+SIDE_POLE = {}
+for _sec, _cfg in SECTOR_AXIS.items():
+    for _pole, _sides in _cfg["poles"].items():
+        for _side in _sides:
+            SIDE_POLE[(_sec, _side)] = _pole
+
 
 # Bill -> sector. Matched against CRS policy area first, then title/summary text.
 BILL_POLICY_SECTOR = {
@@ -120,16 +191,50 @@ def classify_pac(name, connected_org_name="", cmte_tp="", cmte_dsgn="", org_tp="
     return None, "Unclassified", None
 
 
+# H10, from the August 2026 review: a single common word was enough to attach a
+# sector to a bill, so "health" anywhere in a defense authorisation made it a
+# health-care bill and produced money trails off the back of it. These words are
+# real signals in context and noise on their own, so on their own they no longer
+# count. A rule fires when it matches something specific, or when a weak word
+# appears in the *title* (where it is about the bill rather than incidental to
+# it), or when several weak words appear together.
+WEAK_TERMS = {
+    "energy", "electric", "oil", "health", "credit", "bank", "insurance",
+    "worker", "labor", "union", "wage", "employee", "housing", "building",
+    "highway", "vehicle", "truck", "rail", "transit", "defense", "military",
+    "weapon", "chemical", "industrial", "steel", "tariff", "internet", "farm",
+    "crop", "utility", "mining", "water heater", "appliance",
+}
+WEAK_TOGETHER = 3     # this many distinct weak words, and nothing specific, still counts
+
+
 def classify_bill(policy_area, title, summary):
     hits = {}
     if policy_area and policy_area in BILL_POLICY_SECTOR:
         for s in BILL_POLICY_SECTOR[policy_area]:
             hits.setdefault(s, []).append(f"CRS policy area: {policy_area}")
+    head = (title or "").lower()
     hay = f"{title or ''} {(summary or '')[:2500]}".lower()
     for rid, sector, pat in BILL_TEXT_RULES:
-        m = re.search(pat, hay)
-        if m:
-            hits.setdefault(sector, []).append(f"{rid}: matched '{m.group(0)}'")
+        found = {m.group(0) for m in re.finditer(pat, hay)}
+        if not found:
+            continue
+        specific = sorted(t for t in found if t not in WEAK_TERMS)
+        in_title = sorted(t for t in found if re.search(r"\b" + re.escape(t) + r"\b", head))
+        weak = sorted(found - set(specific))
+
+        if specific:
+            why = f"{rid}: matched {', '.join(repr(t) for t in specific[:3])}"
+        elif in_title:
+            why = f"{rid}: matched {', '.join(repr(t) for t in in_title[:3])} in the bill title"
+        elif len(weak) >= WEAK_TOGETHER:
+            why = (f"{rid}: matched {len(weak)} general terms together "
+                   f"({', '.join(repr(t) for t in weak[:4])})")
+        else:
+            # One common word, buried in a summary, about something else. This is
+            # the case that used to attach Health Care to defense bills.
+            continue
+        hits.setdefault(sector, []).append(why)
     return hits
 
 
@@ -137,16 +242,26 @@ def main():
     con = sqlite3.connect(Path(__file__).parent / "civictrace.db"); c = con.cursor()
     c.executescript("""
     DROP TABLE IF EXISTS pac_sector; DROP TABLE IF EXISTS bill_sector;
+    DROP TABLE IF EXISTS sector_axis;
     CREATE TABLE pac_sector (cmte_id TEXT, cycle INTEGER, cmte_name TEXT,
-      sector TEXT, interest_side TEXT, rule_id TEXT, PRIMARY KEY (cmte_id, cycle));
+      sector TEXT, interest_side TEXT, rule_id TEXT, pole TEXT,
+      PRIMARY KEY (cmte_id, cycle));
     CREATE TABLE bill_sector (bill_key TEXT, sector TEXT, evidence TEXT);
+    CREATE TABLE sector_axis (sector TEXT PRIMARY KEY, axis TEXT,
+      pole_a TEXT, pole_b TEXT, sides_a TEXT, sides_b TEXT, unaligned_note TEXT);
     """)
+    for sec, cfg in SECTOR_AXIS.items():
+        (pa, sa), (pb, sb) = list(cfg["poles"].items())
+        c.execute("INSERT INTO sector_axis VALUES (?,?,?,?,?,?,?)",
+                  (sec, cfg["axis"], pa, pb, "; ".join(sa), "; ".join(sb),
+                   cfg.get("unaligned_note") or None))
     n = 0
     for cmte_id, cycle, name, org, tp, dsgn, otp in c.execute(
             "SELECT cmte_id, cycle, cmte_name, connected_org, cmte_tp, cmte_dsgn, org_tp FROM committee").fetchall():
         rid, sector, side = classify_pac(name, org, tp, dsgn, otp)
-        c.execute("INSERT OR REPLACE INTO pac_sector VALUES (?,?,?,?,?,?)",
-                  (cmte_id, cycle, name, sector, side, rid))
+        pole = SIDE_POLE.get((sector, side))
+        c.execute("INSERT OR REPLACE INTO pac_sector VALUES (?,?,?,?,?,?,?)",
+                  (cmte_id, cycle, name, sector, side, rid, pole))
         if sector != "Unclassified": n += 1
     print(f"PACs classified into a sector: {n}")
 
@@ -157,6 +272,15 @@ def main():
             nb += 1
     print(f"bill-sector links: {nb}")
     con.commit()
+    print("interest axes:")
+    for sec, cfg in SECTOR_AXIS.items():
+        counts = {p: c.execute(
+            "SELECT COUNT(*) FROM pac_sector WHERE sector=? AND pole=?", (sec, p)).fetchone()[0]
+            for p in cfg["poles"]}
+        unal = c.execute("SELECT COUNT(*) FROM pac_sector WHERE sector=? AND pole IS NULL",
+                         (sec,)).fetchone()[0]
+        print(f"  {sec}: " + ", ".join(f"{p} {n}" for p, n in counts.items())
+              + f", unaligned {unal}")
     for r in c.execute("""SELECT ps.sector, COUNT(DISTINCT ps.cmte_id) pacs, ROUND(SUM(k.amount)) wi_dollars
         FROM contribution k JOIN pac_sector ps ON ps.cmte_id=k.filer_cmte_id AND ps.cycle=k.cycle
         WHERE k.transaction_tp='24K' AND (k.memo_cd IS NULL OR k.memo_cd<>'X')

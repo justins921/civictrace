@@ -64,7 +64,7 @@ def collect():
             t["label"], t["label_why"] = lab, why
             trails.append(t)
 
-    trails.sort(key=lambda t: (t["label"] != "Notable overlap", -t["money"]["sector_dollars"]))
+    trails.sort(key=lambda t: (t["label"] != "Crossed party, one-sided industry money", -t["money"]["sector_dollars"]))
     # ---- earmarks (FY2026 House Community Project Funding requests) ----
     ear_wi = [dict(r) for r in c.execute("""
         SELECT member_name, district, party, subcommittee, recipient, project,
@@ -181,7 +181,7 @@ const $ = s => document.querySelector(s);
 const money = n => "$" + (n||0).toLocaleString("en-US",{maximumFractionDigits:0});
 const esc = s => String(s==null?"":s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
 const partyChip = p => `<span class="chip ${p==="Republican"||p==="R"?"R":p==="Democrat"||p==="D"?"D":"I"}">${esc((p||"")[0]||"?")}</span>`;
-const badge = l => l==="Notable overlap"?'b-note':l==="Some overlap"?'b-some':'b-low';
+const badge = l => l.startsWith("Crossed party")||l.startsWith("Contested vote, one-sided")?'b-note':l.startsWith("Contested vote")?'b-some':'b-low';
 
 function srcLink(u,t){return u?`<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)} ↗</a>`:esc(t);}
 

@@ -20,7 +20,9 @@ KEY = os.environ.get("SUPABASE_ANON_KEY",
                      "sb_publishable_962AMHB-5EccIqag-UyHEQ_hl5Rd4_V")
 
 
-LABELS = ["Notable overlap", "Some overlap",
+LABELS = ["Crossed party, one-sided industry money",
+          "Contested vote, one-sided industry money",
+          "Contested vote, industry money present",
           "Party-line vote — low signal", "Near-unanimous vote — no signal"]
 
 # PAGE must stay at or below PostgREST's server-side max-rows, or every page

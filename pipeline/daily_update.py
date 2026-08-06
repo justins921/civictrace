@@ -216,11 +216,26 @@ def guard_against_shrink(before, rows_by_table, tolerance=0.05):
     silently drop votes from the site with nothing to notice it by. A shrink
     beyond a few percent is treated as a failed source, not as news.
     """
-    shrunk = []
+    # A deliberate change to a classifier legitimately shrinks a derived table,
+    # and that must not require turning the guard off. CT_ALLOW_SHRINK names the
+    # tables it applies to and why, both are logged with the run, and it only
+    # covers the tables named — everything else is still guarded on the same run.
+    allowed, reason = set(), ""
+    raw = os.environ.get("CT_ALLOW_SHRINK", "").strip()
+    if raw:
+        tables, _, reason = raw.partition(":")
+        allowed = {t.strip() for t in tables.split(",") if t.strip()}
+        if not reason.strip():
+            raise RuntimeError("CT_ALLOW_SHRINK must be 'table[,table]: why', with a reason")
+
+    shrunk, waived = [], []
     for table, n_new in rows_by_table.items():
         n_old = before.get(table, 0)
         if n_old and n_new < n_old * (1 - tolerance):
-            shrunk.append(f"{table}: {n_old} published, refresh produced {n_new}")
+            msg = f"{table}: {n_old} published, refresh produced {n_new}"
+            (waived if table in allowed else shrunk).append(msg)
+    for w in waived:
+        log(f"   shrink allowed — {w} — reason: {reason.strip()}")
     if shrunk:
         raise RuntimeError("refresh lost records, refusing to publish — " + "; ".join(shrunk))
 

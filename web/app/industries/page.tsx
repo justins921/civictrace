@@ -2,6 +2,11 @@ import Link from 'next/link'
 import { db, money, hrefFor, CYCLE, CYCLE_LABEL } from '@/lib/db'
 import { DonorArt } from '@/components/Art'
 
+export const metadata = {
+  title: 'Industries — CivicTrace',
+  description: "PAC giving to Wisconsin's federal delegation, grouped by industry under published classification rules.",
+}
+
 export const revalidate = 3600
 
 export default async function Industries() {
@@ -28,7 +33,7 @@ export default async function Industries() {
 
   return (
     <div className="wrap">
-      <h2 className="section">Industries</h2>
+      <h1 className="section">Industries</h1>
       <p className="lede">
         Every committee that gave to a Wisconsin member is assigned to one industry by a published,
         rule-based classifier — <strong>{list.length}</strong> industries covering{' '}

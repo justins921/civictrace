@@ -2,6 +2,12 @@ import Link from 'next/link'
 import { CONTACT_EMAIL, DOES_NOT_PROVE } from '@/lib/db'
 import { ReportForm } from './ReportForm'
 
+export const metadata = {
+  title: 'Report a problem — CivicTrace',
+  description: 'Found an error in the data or the wording? Tell us — every correction is published.',
+
+}
+
 export const dynamic = 'force-dynamic'
 
 const KINDS: [string, string, string][] = [
@@ -28,7 +34,7 @@ const KINDS: [string, string, string][] = [
 export default function Contact() {
   return (
     <div className="wrap">
-      <h2 className="section">Report a problem</h2>
+      <h1 className="section">Report a problem</h1>
       <p className="lede">
         We would rather hear it than not. Reports about our own accuracy are the most useful thing
         anyone can send us, and every valid one gets published in the{' '}

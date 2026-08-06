@@ -38,7 +38,7 @@ export default async function Search({ searchParams }:
 
   return (
     <div className="wrap">
-      <h2 className="section">Search</h2>
+      <h1 className="section">Search</h1>
       <p className="lede">
         Politicians, contributing committees, bills and sectors. Every result opens a page built
         from primary records, with links back to the original filing.

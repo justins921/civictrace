@@ -1,15 +1,24 @@
 import './globals.css'
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { db } from '@/lib/db'
+import { db, SITE_URL } from '@/lib/db'
 import { Logo, LockIcon, SearchIcon } from '@/components/Art'
 import { ENTITY_NAV, SUB_NAV } from '@/components/nav'
 import { MobileNav } from '@/components/MobileNav'
 
 export const metadata: Metadata = {
-  title: 'CivicTrace — Wisconsin',
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: 'CivicTrace — Wisconsin',
+    // Every route used to inherit one title, so ten pages were
+    // indistinguishable in search results, in browser history and in a screen
+    // reader's tab announcement. Routes set their own now; this is the fallback.
+    template: '%s',
+  },
   description:
     'Follow public records. Draw your own conclusions. Campaign finance, votes, bills and earmarks for Wisconsin, traced to the original government filing.',
+  openGraph: { siteName: 'CivicTrace', type: 'website', locale: 'en_US' },
+  robots: { index: true, follow: true },
 }
 
 async function freshness() {

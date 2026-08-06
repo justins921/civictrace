@@ -1,6 +1,12 @@
 import Link from 'next/link'
 import { db, CONTACT_EMAIL } from '@/lib/db'
 
+export const metadata = {
+  title: 'Corrections — CivicTrace',
+  description: 'Every correction CivicTrace has published, with the reference code from the report that prompted it.',
+
+}
+
 export const revalidate = 600
 
 const CAT_ORDER = ['Contribution data', 'Vote data', 'Timing', 'Methodology', 'Wording', 'Branding']
@@ -18,7 +24,7 @@ export default async function Corrections() {
 
   return (
     <div className="wrap">
-      <h2 className="section">Corrections</h2>
+      <h1 className="section">Corrections</h1>
       <p className="lede">
         Every correction we make is published here permanently: what was wrong, what changed, when,
         and who caught it. Nothing is quietly edited. This page exists so that a reader can check

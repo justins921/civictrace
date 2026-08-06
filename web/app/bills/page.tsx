@@ -2,6 +2,12 @@ import Link from 'next/link'
 import { db, hrefFor } from '@/lib/db'
 import { BillArt } from '@/components/Art'
 
+export const metadata = {
+  title: 'Bills — CivicTrace',
+  description: 'Every bill a Wisconsin member has taken a recorded position on, with the Congressional Research Service summary verbatim.',
+
+}
+
 export const revalidate = 3600
 
 export default async function Bills() {
@@ -51,7 +57,7 @@ export default async function Bills() {
 
   return (
     <div className="wrap">
-      <h2 className="section">Bills</h2>
+      <h1 className="section">Bills</h1>
       <p className="lede">
         Every bill a Wisconsin member has taken a recorded position on this Congress —{' '}
         <strong>{list.length}</strong> bills, decided across{' '}

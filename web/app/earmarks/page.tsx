@@ -1,5 +1,10 @@
 import Link from 'next/link'
-import { db, money, shortMoney, partyLetter, hrefFor } from '@/lib/db'
+import { db, money, shortMoney, partyLetter, hrefFor , safeUrl } from '@/lib/db'
+
+export const metadata = {
+  title: 'Earmarks — CivicTrace',
+  description: "FY2026 Community Project Funding requests, from each member's own required public disclosure.",
+}
 
 export const revalidate = 3600
 
@@ -38,7 +43,7 @@ export default async function Earmarks() {
 
   return (
     <div className="wrap">
-      <h2 className="section">Earmark audit — FY2026 Community Project Funding</h2>
+      <h1 className="section">Earmark audit — FY2026 Community Project Funding</h1>
       <p className="lede">
         Every House member who requested an earmark had to disclose it publicly. This is that
         disclosure file, in full: <strong>{Number(nat?.n || 0).toLocaleString()}</strong> requests
@@ -90,7 +95,7 @@ export default async function Earmarks() {
             <div className="kpi mono" style={{ marginTop: 12 }}>{money(m.total)}</div>
             <div className="small">{m.n} requests · avg {money(m.total / m.n)}</div>
             <div className="bar"><i style={{ width: `${Math.max(3, (100 * m.total) / memberRows[0].total)}%` }} /></div>
-            {m.url && <a className="btn" style={{ marginTop: 14 }} href={m.url}
+            {safeUrl(m.url) && <a className="btn" style={{ marginTop: 14 }} href={safeUrl(m.url)!}
               target="_blank" rel="noopener noreferrer">Member&apos;s own disclosure ↗</a>}
           </div>
         ))}
@@ -145,7 +150,7 @@ export default async function Earmarks() {
             ))}
           </tbody>
         </table>
-        <a className="btn" style={{ marginTop: 14 }} href={(ears || [])[0]?.source_url}
+        <a className="btn" style={{ marginTop: 14 }} href={safeUrl((ears || [])[0]?.source_url) || undefined}
           target="_blank" rel="noopener noreferrer">
           House Appropriations FY26 consolidated CPF file (XLSX) ↗
         </a>

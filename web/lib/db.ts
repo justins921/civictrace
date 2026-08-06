@@ -32,17 +32,27 @@ export const officeLine = (m: { chamber?: string | null; district?: string | nul
 
 export const isYes = (p?: string | null) => /^(Yea|Aye|Yes)$/i.test(p || '')
 
-/* Four honest states. Ordering matters: this is also the sort key everywhere. */
+/* Five states, named for what was observed rather than for how interesting it
+   is. Ordering matters: this is also the sort key everywhere.
+
+   "Notable overlap" and "Some overlap" are gone. They read as verdicts — a
+   member who voted *against* the industry that funds them collected the same
+   "Notable overlap" badge as one who voted with it, and the badge is the part
+   that gets quoted. These names state the two facts the record actually
+   supports: how the member voted relative to their own party, and whether the
+   industry's money sits mostly on one pole of its own axis. */
 export const LABELS = [
-  'Notable overlap',
-  'Some overlap',
+  'Crossed party, one-sided industry money',
+  'Contested vote, one-sided industry money',
+  'Contested vote, industry money present',
   'Party-line vote — low signal',
   'Near-unanimous vote — no signal',
 ] as const
 
 export function labelClass(label: string) {
-  if (label.startsWith('Notable')) return { badge: 'b-note', verdict: 'v-note', angle: 62 }
-  if (label.startsWith('Some')) return { badge: 'b-some', verdict: 'v-some', angle: 20 }
+  if (label.startsWith('Crossed party')) return { badge: 'b-note', verdict: 'v-note', angle: 62 }
+  if (label.startsWith('Contested vote, one-sided')) return { badge: 'b-note', verdict: 'v-note', angle: 40 }
+  if (label.startsWith('Contested vote')) return { badge: 'b-some', verdict: 'v-some', angle: 20 }
   if (label.startsWith('Party-line')) return { badge: 'b-low', verdict: 'v-low', angle: -30 }
   return { badge: 'b-low', verdict: 'v-none', angle: -66 }
 }
@@ -131,3 +141,29 @@ export async function labelCounts(): Promise<LabelCounts> {
   const summed = pairs.reduce((a, [, n]) => a + n, 0)
   return { counts, total: total || 0, partitions: summed === (total || 0) }
 }
+
+/* ------------------------------------------------------------------- links
+
+   M22. Every off-site link on this site is built from a URL that came out of
+   the database, and the database is built from files fetched off the internet.
+   A `javascript:` or `data:` href in a committee record would be a stored XSS
+   with a click on it. Nothing in the pipeline currently produces one, which is
+   exactly the assumption worth not making. */
+export function safeUrl(u?: string | null): string | null {
+  if (!u) return null
+  try {
+    const p = new URL(String(u).trim())
+    return p.protocol === 'https:' || p.protocol === 'http:' ? p.toString() : null
+  } catch {
+    return null   // not absolute, not parseable — not a link we will emit
+  }
+}
+
+/* M18. Canonical origin for sitemap, robots and per-page metadata. Vercel sets
+   VERCEL_PROJECT_PRODUCTION_URL on production builds; the fallback is the
+   current deployment so a preview does not advertise production URLs. */
+export const SITE_URL = (
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`) ||
+  'https://civictrace.vercel.app'
+).replace(/\/$/, '')

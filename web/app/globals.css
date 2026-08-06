@@ -1,6 +1,12 @@
 :root{
   --page:#eef2f7; --card:#ffffff; --line:#dde5ef; --line2:#eaeff6;
-  --ink:#16222f; --dim:#5f7183; --faint:#8698a9;
+  --ink:#16222f; --dim:#5f7183;
+  /* M20: --faint was #8698a9 — 2.97:1 on white, against WCAG AA's 4.5:1, and it
+     is the colour of every table header, eyebrow and .tiny note on the site.
+     #5b6e7e clears 4.5:1 on all three backgrounds in use (#fff 5.28, #f7fafd
+     5.04, --page #eef2f7 4.70). It reads as the same grey; it just is not
+     failing. */
+  --faint:#5b6e7e;
   --navy:#12376b; --blue:#2f7bd6; --blue2:#5b9ae6; --blue-soft:#eaf1fa;
   --green:#1f7a52; --green-bg:#e7f6ee; --green-line:#bfe6d1;
   --amber:#8a6a00; --amber-bg:#fff5db; --amber-line:#f2dfa8;
@@ -76,7 +82,12 @@ a:hover{text-decoration:underline}
 .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
 .g3{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
 .g4{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
-h2.section{font-size:26px;font-weight:800;letter-spacing:-.6px;margin:34px 0 6px;color:var(--navy)}
+/* M19: ten routes opened with an <h2> and had no <h1> at all, so a screen
+   reader's heading list started at level two and the page had no announced
+   title. The first section heading on each of those pages *is* the page title,
+   so it is an <h1> now — same size, same weight, same margin. */
+h1.section,h2.section{font-size:26px;font-weight:800;letter-spacing:-.6px;margin:34px 0 6px;color:var(--navy)}
+h1.section{margin-top:26px}
 h3{margin:0 0 6px;font-size:17px;font-weight:800;letter-spacing:-.2px}
 p.lede{color:var(--dim);margin:0 0 18px;max-width:820px}
 .small{font-size:13.5px;color:var(--dim)}

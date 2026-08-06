@@ -2,6 +2,12 @@ import Link from 'next/link'
 import { db, money, hrefFor, CYCLE, CYCLE_LABEL } from '@/lib/db'
 import { DonorArt } from '@/components/Art'
 
+export const metadata = {
+  title: 'Donors — CivicTrace',
+  description: 'Every political committee that made a direct contribution to a Wisconsin member of Congress, traced to the filed FEC document.',
+
+}
+
 export const revalidate = 3600
 
 const PAGE = 100
@@ -57,7 +63,7 @@ export default async function Donors({ searchParams }:
 
   return (
     <div className="wrap">
-      <h2 className="section">Donors</h2>
+      <h1 className="section">Donors</h1>
       <p className="lede">
         {filtered ? (
           <>

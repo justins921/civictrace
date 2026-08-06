@@ -2,6 +2,11 @@ import Link from 'next/link'
 import { db, money, partyLetter, labelClass, trailHref, LABELS, isYes, hrefFor, labelCounts, CYCLE } from '@/lib/db'
 import { Gauge } from '@/components/Gauge'
 
+export const metadata = {
+  title: 'Money trails — CivicTrace',
+  description: "Member-vote pairs where a bill's industry overlaps with PAC money the member received. Not an allegation.",
+}
+
 const PER_PAGE = 60
 
 export const revalidate = 3600
@@ -57,7 +62,7 @@ export default async function Trails({ searchParams }:
 
   return (
     <div className="wrap">
-      <h2 className="section">Money trails</h2>
+      <h1 className="section">Money trails</h1>
       <p className="lede">
         {total.toLocaleString()} member-vote pairs where a bill&apos;s sector overlaps with PAC
         money the member received. A trail appearing here is <strong>not</strong> an allegation.

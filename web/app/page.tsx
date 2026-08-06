@@ -77,7 +77,7 @@ export default async function Home() {
           from every one of these would be lying to you.
         </p>
         <div className="grid g4">
-          {['Near-unanimous vote — no signal', 'Party-line vote — low signal', 'Some overlap', 'Notable overlap']
+          {['Near-unanimous vote — no signal', 'Party-line vote — low signal', 'Contested vote, industry money present', 'Contested vote, one-sided industry money', 'Crossed party, one-sided industry money']
             .map(l => (
               <div className="card" key={l}>
                 <span className={`badge ${labelClass(l).badge}`}>{l}</span>

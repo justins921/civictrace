@@ -1,6 +1,12 @@
 import Link from 'next/link'
 import { db, money, partyLetter, officeLine, hrefFor, CYCLE, CYCLE_LABEL } from '@/lib/db'
 
+export const metadata = {
+  title: "Wisconsin's federal delegation — CivicTrace",
+  description: 'All ten members, with direct PAC contributions reported this cycle and links to every original filing.',
+
+}
+
 export const revalidate = 3600
 
 export default async function Delegation() {
@@ -15,7 +21,7 @@ export default async function Delegation() {
 
   return (
     <div className="wrap">
-      <h2 className="section">Wisconsin&apos;s federal delegation</h2>
+      <h1 className="section">Wisconsin&apos;s federal delegation</h1>
       <p className="lede">
         Ten members. Every dollar below is a direct PAC contribution (FEC transaction type 24K)
         reported in the {CYCLE_LABEL}, with memo entries excluded so nothing is counted twice.
@@ -28,10 +34,12 @@ export default async function Delegation() {
         We count what the giving committees reported on their Schedule B. The FEC&apos;s
         &ldquo;contributions from other committees&rdquo; line counts what the receiving campaign
         reported on its Schedule A. Those two ledgers never tie exactly — monthly versus quarterly
-        filers, amendments, and one-sided itemization all cause drift. Our Van Orden figure is
-        $944,307; the FEC candidate page shows $994,742 through July 22, 2026. Neither is an error.
-        We show the giver&apos;s ledger because it is the one that tells you <em>who</em> gave — but
-        you should know which ledger you are reading, so we say so here instead of burying it.
+        filers, amendments, and one-sided itemization all cause drift. Neither ledger is an error.
+        A worked example with both numbers is on the{' '}
+        <Link href="/methodology">methodology page</Link>, where our side of it is read from the
+        published data rather than typed into the sentence. We show the giver&apos;s ledger because
+        it is the one that tells you <em>who</em> gave — but you should know which ledger you are
+        reading, so we say so here instead of burying it.
       </div>
 
       <div className="grid g3" style={{ marginTop: 18 }}>

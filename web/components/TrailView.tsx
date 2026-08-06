@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { money, officeLine, labelClass, DOES_NOT_PROVE, hrefFor, CYCLE_LABEL } from '@/lib/db'
+import { money, officeLine, labelClass, DOES_NOT_PROVE, hrefFor, CYCLE_LABEL, safeUrl } from '@/lib/db'
 import { Gauge } from './Gauge'
 import {
   DonorArt, PoolArt, CapitolArt, VoteArt, ClockArt, BillArt,
@@ -15,6 +15,7 @@ export type Trail = {
   sectors: Sector[]; top_pacs: Pac[]
   sector_dollars: number; sector_share_pct: number; total_pac_dollars: number
   aligned_side_dollars: number; opposed_side_dollars: number; pac_count: number
+  has_interest_axis?: boolean; larger_pole?: string | null; smaller_pole?: string | null
   days_since_last_sector_contribution: number | null
   timing_date: string | null; timing_same_day: boolean
   timing_contributions: { cmte_id: string; name: string; amount: number; date: string; fec_url: string }[]
@@ -86,7 +87,7 @@ export function TrailView({ t }: { t: Trail }) {
           sub={top ? [top.sector, top.side].filter(Boolean).join(' · ') : undefined}
           amount={money(top?.total)}
           amountLabel={`from this committee alone, ${CYCLE_LABEL} · rule ${top?.rule_id || '—'}`}
-          footer={top && <a href={top.fec_url} target="_blank" rel="noopener noreferrer">FEC committee ↗</a>} />
+          footer={top && <a href={safeUrl(top.fec_url) || '#'} target="_blank" rel="noopener noreferrer">FEC committee ↗</a>} />
 
         <Step n={2} label="Sector contributors" question="Who else in that sector gave?"
           art={<PoolArt size={74} />}
@@ -112,7 +113,7 @@ export function TrailView({ t }: { t: Trail }) {
           sub={t.vote_question || undefined}
           tone="plain"
           amount={`${t.vote_result} ${t.yea}–${t.nay}`} amountLabel={t.iso_date || ''}
-          footer={t.vote_source_url && <a href={t.vote_source_url} target="_blank" rel="noopener noreferrer">
+          footer={t.vote_source_url && <a href={safeUrl(t.vote_source_url) || '#'} target="_blank" rel="noopener noreferrer">
             Roll call record ↗</a>} />
 
         <Step n={5} label="The timing" question="How close together were they?"
@@ -139,7 +140,7 @@ export function TrailView({ t }: { t: Trail }) {
           sub={(t.bill_summary || '').slice(0, 150) + ((t.bill_summary || '').length > 150 ? '…' : '')}
           tone="plain"
           amount={t.policy_area || 'Policy area not assigned'} amountLabel="CRS policy area"
-          footer={t.congressgov_url && <a href={t.congressgov_url} target="_blank" rel="noopener noreferrer">
+          footer={t.congressgov_url && <a href={safeUrl(t.congressgov_url) || '#'} target="_blank" rel="noopener noreferrer">
             Congress.gov ↗</a>} />
       </div>
 
@@ -162,11 +163,14 @@ export function TrailView({ t }: { t: Trail }) {
             <div className={`verdict ${lc.verdict}`}>{t.label}</div>
             <div className="small">{t.label_why}</div>
             <div className="tiny" style={{ marginTop: 8 }}>
-              This label is computed from the money and from how contested the vote was. It does
-              <strong> not</strong> take into account which way the member voted — a Yea and a Nay
-              on the same bill with the same money receive the same label. The member&apos;s
-              position is printed at the top of this page; read it yourself rather than inferring
-              it from the label.
+              This label is computed from three things: how much of the member&apos;s PAC money
+              came from the bill&apos;s industry, how contested the vote was, and{' '}
+              <strong>how this member voted relative to their own party</strong>. It does{' '}
+              <strong>not</strong> claim the member voted the way their donors wanted — deciding
+              what a bill does to an industry is a judgement call, and CivicTrace does not make
+              it. So the strongest label here means the member broke from their own party on a
+              contested vote while one side of that industry was funding them. It does not mean
+              they voted for that side.
             </div>
           </div>
         </div>
@@ -190,18 +194,24 @@ export function TrailView({ t }: { t: Trail }) {
           <MegaphoneIcon />
           <div>
             <div className="eyebrow" style={{ color: 'var(--blue)' }}>
-              Money from the opposite interest side
+              {t.smaller_pole ? `Money from the ${t.smaller_pole} side` : 'Money from the other side'}
             </div>
             <div className="kpi" style={{ fontSize: 26, marginTop: 4 }}>{money(t.opposed_side_dollars)}</div>
             <div className="small">
-              {Number(t.opposed_side_dollars) > 0
-                ? 'came from committees carrying the opposite interest side within this same industry — for example a utility PAC against an environmental PAC. That is our classification of the committee, not a statement about this bill.'
-                : 'This industry has no opposing side in our classifier yet, so we cannot tell you what the other side gave. Read this zero as missing, not as checked.'}
+              {t.has_interest_axis ? (
+                <>came from committees on the <strong>{t.smaller_pole || 'opposing'}</strong> pole
+                of this industry, against <strong>{money(t.aligned_side_dollars)}</strong> from{' '}
+                <strong>{t.larger_pole}</strong>. That is our classification of each committee, not
+                a statement about this bill.</>
+              ) : (
+                <>This industry has no two-sided axis in our classifier, so we cannot tell you what
+                another side gave. Read this zero as <strong>missing</strong>, not as checked.</>
+              )}
             </div>
             <div className="tiny" style={{ marginTop: 8 }}>
-              {Number(t.opposed_side_dollars) > 0
-                ? 'Shown beside the industry total by design. A trail that shows only one side of an industry is an argument, not a record.'
-                : 'Known gap, found in outside review: only one industry currently has a two-sided classification, so almost every trail reports $0 here. We previously said this zero meant we had checked. It did not, and that sentence is gone. Until the classifier has real opposing sides, treat this figure as missing rather than as evidence.'}
+              {t.has_interest_axis
+                ? 'Shown beside the industry total by design. A trail that shows only one side of an industry is an argument, not a record. Three industries currently carry a declared axis — energy, health care and guns — and the others say so here rather than printing a zero that looks like a finding.'
+                : 'Not every industry has two organised sides lobbying against each other, and we do not invent one to fill this box. Where an axis exists it is published on the methodology page with the committee list for each pole.'}
             </div>
           </div>
         </div>
@@ -279,7 +289,7 @@ export function TrailView({ t }: { t: Trail }) {
                 <tr key={p.cmte_id}>
                   <td><Link href={hrefFor.committee(p.cmte_id)}>{p.name}</Link>
                     <div className="tiny">rule {p.rule_id || '—'} ·{' '}
-                      <a href={p.fec_url} target="_blank" rel="noopener noreferrer">FEC ↗</a></div></td>
+                      <a href={safeUrl(p.fec_url) || '#'} target="_blank" rel="noopener noreferrer">FEC ↗</a></div></td>
                   <td className="small">{p.side || '—'}</td>
                   <td className="num mono">{money(p.total)}</td>
                 </tr>
@@ -295,7 +305,7 @@ export function TrailView({ t }: { t: Trail }) {
         estimated, modelled, or inferred.</p>
       <div className="srcgrid">
         <SourceCard n={1} kind="Contribution" who={top?.name || '—'} value={money(top?.total)}
-          meta={`FEC FORM 3X · SCHEDULE B\nTYPE 24K · CYCLE ${t.cycle}`} href={top?.fec_url} />
+          meta={`FEC FORM 3X · SCHEDULE B\nTYPE 24K · CYCLE ${t.cycle}`} href={safeUrl(top?.fec_url)} />
         <SourceCard n={2} kind="Sector total" who={sectorNames} value={money(t.sector_dollars)}
           meta={`FEC BULK pas2 · ${t.pac_count} COMMITTEES\nMEMO ROWS EXCLUDED`}
           href="https://www.fec.gov/data/browse-data/?tab=bulk-data" />
@@ -304,12 +314,12 @@ export function TrailView({ t }: { t: Trail }) {
           href={t.fec_cand_id ? `https://www.fec.gov/data/candidate/${t.fec_cand_id}/` : null} />
         <SourceCard n={4} kind="Vote" who={`${t.legis_num} — ${t.position}`}
           meta={`${t.vote_chamber === 'House' ? 'U.S. HOUSE ROLL CALL' : 'U.S. SENATE ROLL CALL'}\n${t.iso_date || ''} · ${t.vote_result}`}
-          href={t.vote_source_url} />
+          href={safeUrl(t.vote_source_url)} />
         <SourceCard n={5} kind="Bill" who={t.bill_title || '—'}
-          meta={`GOVINFO BILLSTATUS XML\n${t.bill_key || ''}`} href={t.bill_source_url} />
+          meta={`GOVINFO BILLSTATUS XML\n${t.bill_key || ''}`} href={safeUrl(t.bill_source_url)} />
         <SourceCard n={6} kind="Bill summary" who={t.bill_title || '—'}
           meta={`CONGRESS.GOV · CRS SUMMARY\nSPONSOR: ${t.sponsor_name || 'n/a'}`}
-          href={t.congressgov_url} label="Read Bill Summary" />
+          href={safeUrl(t.congressgov_url)} label="Read Bill Summary" />
       </div>
 
       <div className="note" style={{ marginTop: 16 }}>

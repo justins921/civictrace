@@ -139,8 +139,11 @@ for m in WI:
             "voted_with_party": t["context"]["voted_with_own_party"],
             "position": t["vote"]["position"],
         })
-ORDER = {"Notable overlap": 0, "Some overlap": 1, "Party-line vote — low signal": 2,
-         "Near-unanimous vote — no signal": 3}
+ORDER = {"Crossed party, one-sided industry money": 0,
+         "Contested vote, one-sided industry money": 1,
+         "Contested vote, industry money present": 2,
+         "Party-line vote — low signal": 3,
+         "Near-unanimous vote — no signal": 4}
 trails.sort(key=lambda t: (ORDER.get(t["label"], 9), -t["sector_dollars"]))
 for i, t in enumerate(trails): t["rank"] = i
 

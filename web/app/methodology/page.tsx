@@ -1,5 +1,11 @@
 import { db, money, CYCLE, CYCLE_LABEL } from '@/lib/db'
 
+export const metadata = {
+  title: 'Methodology — CivicTrace',
+  description: 'How CivicTrace classifies committees and bills, what it refuses to claim, and where every figure comes from.',
+
+}
+
 export const revalidate = 3600
 
 const SOURCES: [string, string, string][] = [
@@ -23,7 +29,7 @@ export default async function Methodology() {
   // counted committee rows across all cycles (1,991) while /donors listed the
   // published cycle (1,972), and a reader had no way to tell which was wrong.
   const [{ count: members }, { count: rcs }, { count: pos }, { count: bills },
-    { count: ears }, { count: trails }, { data: recon }] = await Promise.all([
+    { count: ears }, { count: trails }, { data: recon }, { data: exampleRows }] = await Promise.all([
       db.from('member').select('*', { count: 'exact', head: true }),
       db.from('rollcall').select('*', { count: 'exact', head: true }),
       db.from('vote_position').select('*', { count: 'exact', head: true }),
@@ -31,7 +37,17 @@ export default async function Methodology() {
       db.from('earmark').select('*', { count: 'exact', head: true }),
       db.from('money_trail').select('*', { count: 'exact', head: true }).eq('cycle', CYCLE),
       db.from('reconciliation').select('*').single(),
+      // M15: the reconciliation example used to be two numbers typed into the
+      // prose. One of them was our own figure, which changes on every refresh,
+      // so the paragraph explaining why our totals drift from the FEC's was
+      // itself drifting out of date. Read the live one; keep the FEC's as the
+      // dated observation it is.
+      db.from('member_sector_money').select('bioguide,total')
+        .eq('cycle', CYCLE).eq('bioguide', 'V000133'),
     ])
+
+  // Summed across sectors: the same member's money split by industry.
+  const example = (exampleRows || []).reduce((a: number, r: any) => a + Number(r.total), 0) || null
   const cmtes = Number(recon?.committees_listed ?? 0)
   const support = Number(recon?.committees_giving ?? 0)
 
@@ -48,7 +64,7 @@ export default async function Methodology() {
 
   return (
     <div className="wrap">
-      <h2 className="section">Methodology</h2>
+      <h1 className="section">Methodology</h1>
       <p className="lede">
         Everything below is published so that anyone can reproduce our numbers or prove them wrong.
         Reproducibility is not a nicety here — it is the only reason to trust a site like this.
@@ -86,8 +102,10 @@ export default async function Methodology() {
               expected.</strong> The candidate page reports Schedule A line 11(c) — what the campaign
               said it received. We report Schedule B — what the PACs said they gave. Filing-frequency
               mismatches, amendments and one-sided itemization guarantee a gap. Example: our figure
-              for Derrick Van Orden is $944,307; the FEC candidate page shows $994,742 through
-              July 22, 2026.</li>
+              for Derrick Van Orden is <strong>{example ? money(example) : 'not currently loaded'}</strong>{' '}
+              (read from the published data as this page rendered); the FEC candidate page showed
+              $994,742 through July 22, 2026, the last time we checked it by hand. The second
+              number is a dated observation and we date it rather than refresh it silently.</li>
             <li>Every payment keeps its FEC <code>SUB_ID</code> and image number, so any figure can
               be traced back to the filed report.</li>
           </ul>
@@ -119,10 +137,16 @@ export default async function Methodology() {
           <li>Where no industry rule matches, the committee is labeled by its FEC structural code —
             leadership PAC, party committee, corporate, trade association — so &ldquo;Unclassified&rdquo;
             means genuinely unknown rather than merely not-an-industry.</li>
-          <li>Every committee also carries an <em>interest side</em>. A utility PAC and an
-            environmental PAC are both &ldquo;Energy&rdquo; but they are not on the same side of a
-            bill. Recording the side is what lets every trail show the opposing money next to the
-            the industry total, which it always does.</li>
+          <li>Every committee also carries an <em>interest side</em>, and some industries carry a
+            declared <em>axis</em>: two named poles that lobby against each other. Energy is split
+            between carbon-intensive energy and climate &amp; conservation, health care between
+            payers and providers, and guns between gun rights and gun violence prevention. Where an
+            axis exists, every trail shows both poles side by side. Where one does not, the trail
+            says so instead of printing a zero.</li>
+          <li>An axis is only declared where two organised constituencies genuinely lobby against
+            each other and we can name both without making a political judgement. Sides that sit on
+            neither pole — nuclear and biofuels in energy, pharma and devices in health care — are
+            recorded as unaligned rather than quietly folded into one side.</li>
           <li>Bill sectors come from the CRS policy area first, then title and summary keyword rules.
             The matching evidence is displayed on every trail, so a silly keyword match is visible
             rather than hidden.</li>
@@ -141,11 +165,17 @@ export default async function Methodology() {
           <li>It will never rank politicians against each other. A ranking function encodes the
             author&apos;s politics whether they meant it to or not.</li>
           <li>It will never take a position on a bill.</li>
-          <li>It shows the opposing interest side whenever the classifier has one. Today only
-              Energy &amp; Utilities does, so almost every trail reports <code>$0</code> opposing
-              money — which means <em>not classified</em>, not <em>checked and none found</em>.
-              This is a known gap, found in outside review, and the trail pages say so rather than
-              letting the zero speak for itself.</li>
+          <li>It will never claim a member voted the way their donors wanted. Deciding what a bill
+              does to an industry is a judgement call, and we do not make it — so no label on this
+              site means &ldquo;voted with their funders&rdquo;. The strongest label,{' '}
+              <em>crossed party, one-sided industry money</em>, means exactly what it says: the
+              member broke from their own party on a contested vote while one pole of that industry
+              was funding them. Which way they voted is printed next to it; draw your own
+              conclusion.</li>
+          <li>It shows the opposing pole whenever the industry has a declared axis, and says
+              plainly when it does not. Three industries currently do. A <code>$0</code> on a
+              trail without an axis means <em>not classified</em>, never <em>checked and none
+              found</em>, and the page states which of the two it is.</li>
         </ul>
       </div>
 
