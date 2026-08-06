@@ -191,6 +191,8 @@ LOAD = [
     ("15_ie.independent_expenditure",    "independent_expenditure", 120, True),
     ("15b_ie_agg.ie_agg",                "ie_agg",              50, True),
     ("16_individual.individual_agg",     "individual_agg",     300, True),
+    ("17_lobby_issue.lobbying_issue",    "lobbying_issue",     100, True),
+    ("17b_lobby_bill.lobbying_bill",     "lobbying_bill",      150, True),
 ]
 
 
@@ -391,6 +393,11 @@ def main():
         # 2 GB of itemized individual contributions, streamed and aggregated.
         # Conditional download, so most days this is one 304.
         run("individual contributions", "load_individuals.py")
+        # LDA is resumable and deliberately time-boxed: a full year is ~2,200
+        # requests against a 15/min anonymous limit. Each run continues from a
+        # checkpoint, so the data fills in over several days rather than
+        # blocking one refresh for three hours.
+        run("lobbying disclosures", "load_lobbying.py")
         run("export", "export_json.py")
         run("timing provenance", "timing.py")
         # Gate BEFORE the swap, against the SQLite build, not after it against

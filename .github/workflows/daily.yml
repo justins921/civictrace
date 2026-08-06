@@ -7,6 +7,7 @@
 #   SUPABASE_ANON_KEY   the publishable key
 #   CT_INGEST_TOKEN     the write token
 #   FEC_API_KEY         openFEC key, free from api.open.fec.gov/developers
+#   LDA_API_KEY         lobbying key, free from lda.gov — optional, 8x faster
 #
 # FEC_API_KEY is optional in the sense that the run still succeeds without it —
 # fetch_totals.py falls back to DEMO_KEY, which is rate limited across every
@@ -48,6 +49,10 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CT_INGEST_TOKEN: ${{ secrets.CT_INGEST_TOKEN }}
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+          # Optional. Without it the LDA fetch runs at 15 requests a minute
+          # instead of 120, so the lobbying data fills in over a week of daily
+          # runs rather than in one. It is resumable either way.
+          LDA_API_KEY: ${{ secrets.LDA_API_KEY }}
           CT_SOURCE: github actions
       # Blocks a bad refresh from standing: if any two routes to a published
       # total disagree, this fails and the run is marked failed.

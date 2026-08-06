@@ -221,6 +221,13 @@ dump("15_ie", "independent_expenditure", ies,
      ["bioguide","cand_id","cycle","spender_id","spender_name","support_oppose","amount",
       "iso_date","purpose","file_num","tran_id","image_num","amndt_ind","source_url"], per=120)
 
+lob_i = [dict(r) for r in c.execute("SELECT * FROM lobbying_issue")]
+dump("17_lobby_issue", "lobbying_issue", lob_i, ["year","issue","filings","reported_spend"], per=100)
+lob_b = [dict(r) for r in c.execute("SELECT * FROM lobbying_bill")]
+dump("17b_lobby_bill", "lobbying_bill", lob_b,
+     ["bill_key","year","period","client","registrant","amount","issue","description","source_url"],
+     per=150)
+
 indiv = [dict(r) for r in c.execute("SELECT * FROM individual_agg")]
 dump("16_individual", "individual_agg", indiv,
      ["bioguide","cycle","dimension","key","donations","total"], per=300)

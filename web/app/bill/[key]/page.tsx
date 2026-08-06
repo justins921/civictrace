@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { db, money, partyLetter, labelClass, trailHref, hrefFor, isYes, CYCLE } from '@/lib/db'
+import { db, money, partyLetter, labelClass, trailHref, hrefFor, isYes, CYCLE, safeUrl } from '@/lib/db'
 import { BillArt } from '@/components/Art'
 
 export const revalidate = 3600
@@ -19,11 +19,24 @@ export default async function Bill({ params }: { params: Promise<{ key: string }
   const { data: b } = await db.from('bill').select('*').eq('bill_key', key).single()
   if (!b) notFound()
 
-  const [{ data: sectors }, { data: trails }, { data: rolls }] = await Promise.all([
+  const [{ data: sectors }, { data: trails }, { data: rolls }, { data: lobbying }] =
+    await Promise.all([
     db.from('bill_sector').select('*').eq('bill_key', key),
     db.from('trail_full').select('*').eq('bill_key', key).eq('cycle', CYCLE).order('rank'),
     db.from('rollcall').select('*').eq('congress', b.congress),
+    db.from('lobbying_bill').select('*').eq('bill_key', key)
+      .order('amount', { ascending: false }).limit(40),
   ])
+
+  // One filing can name the same bill under several issue codes; collapse to
+  // one row per client so the list is a list of interests, not of paperwork.
+  const lobbyByClient = new Map<string, any>()
+  for (const l of lobbying || []) {
+    const k = `${l.client}|${l.registrant}`
+    const prev = lobbyByClient.get(k)
+    if (!prev || Number(l.amount) > Number(prev.amount)) lobbyByClient.set(k, l)
+  }
+  const lobbyists = [...lobbyByClient.values()]
 
   // Roll calls are matched on the legislative number as printed by the chamber.
   // The House Clerk writes "H R 1234"; the Senate LIS writes "H.R. 1234" and
@@ -161,6 +174,54 @@ export default async function Bill({ params }: { params: Promise<{ key: string }
 
       {(trails || []).length > 0 && (
         <>
+          {lobbyists.length > 0 && (
+            <>
+              <h2 className="section">Who reported lobbying on this bill</h2>
+              <p className="lede small">
+                From quarterly Lobbying Disclosure Act filings. The dollar figure is the{' '}
+                <em>whole filing</em> — a registrant&apos;s total income from that client for the
+                quarter, across every issue they worked on. It is not what was spent on this bill,
+                and no such figure exists in the public record.
+              </p>
+              <div className="card">
+                <table>
+                  <thead><tr><th>Client</th><th>Lobbying firm</th><th>Issue</th>
+                    <th className="num">Filing total</th></tr></thead>
+                  <tbody>
+                    {lobbyists.map((l: any, i: number) => (
+                      <tr key={i}>
+                        <td><strong>{l.client}</strong>
+                          <div className="tiny clamp2">{l.description}</div></td>
+                        <td className="small">{l.registrant === l.client
+                          ? 'in-house' : l.registrant}</td>
+                        <td className="small">{l.issue}</td>
+                        <td className="num mono">
+                          {Number(l.amount) > 0 ? money(l.amount) : '—'}
+                          <div className="tiny">{l.period} {l.year}</div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="tiny card-foot">
+                  {safeUrl(lobbyists[0]?.source_url) && (
+                    <a href={safeUrl(lobbyists[0].source_url)!} target="_blank"
+                      rel="noopener noreferrer">Read one of these filings ↗</a>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="note">
+            <strong>Lobbying coverage on this site is partial, and not in a way we can fix.</strong>{' '}
+            The Lobbying Disclosure Act has no field for a bill number — registrants describe their
+            work in prose, and we measured that only about <strong>15%</strong> of quarterly
+            lobbying activities name a bill at all. So an empty list above means no filing we could
+            parse named this bill. It does not mean nobody lobbied on it, and it should never be
+            read that way.
+          </div>
+
           <h2 className="section">Money trails on this bill</h2>
           <div className="grid g3">
             {(trails || []).map((t: any) => (
