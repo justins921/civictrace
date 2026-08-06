@@ -11,14 +11,29 @@ export const metadata = {
 export const revalidate = 3600
 
 export default async function Bills() {
-  const [{ data: bills }, { data: links }, { data: rcs }] = await Promise.all([
-    db.from('bill_profile').select('*'),
+  // Fetch the voted bills; COUNT the rest. `.limit(3000)` on the full table was
+  // the same mistake this codebase has now made four times: PostgREST caps an
+  // unbounded select at 1000 rows regardless of what you ask for, so the
+  // "signed but never voted" figure was derived from 1,000 of 2,419 bills and
+  // printed 791 instead of the truth. Never .length a response you did not bound.
+  const [{ data: bills }, { count: signedOnlyCount }, { data: links }, { data: rcs }] =
+    await Promise.all([
+    db.from('bill_profile').select('*').eq('has_rollcall', true),
+    db.from('bill_profile').select('bill_key', { count: 'exact', head: true })
+      .eq('has_rollcall', false).gt('wi_sponsors', 0),
     db.from('bill_sector').select('bill_key,sector,evidence'),
     db.from('rollcall').select('vote_key,legis_num,iso_date,vote_result,yea,nay,chamber'),
   ])
 
   const sectorsFor: Record<string, string[]> = {}
   for (const l of links || []) (sectorsFor[l.bill_key] ||= []).push(l.sector)
+
+  // The bill table now holds every bill a Wisconsin member sponsored or
+  // cosponsored — 2,419 of them — not only the 209 that reached a vote. This
+  // page is about the voted ones, and saying "every bill they took a recorded
+  // position on" over the larger population would be false in the specific way
+  // this project keeps catching in itself.
+  const signedOnly = signedOnlyCount || 0
 
   const list = (bills || []).slice().sort((a: any, b: any) => {
     const t = Number(b.trail_count || 0) - Number(a.trail_count || 0)
@@ -65,6 +80,15 @@ export default async function Bills() {
         Congressional Research Service summary <em>verbatim</em>; no language model wrote or
         edited a word of it.
       </p>
+      {signedOnly > 0 && (
+        <p className="small" style={{ marginTop: -6 }}>
+          Separately, Wisconsin members put their names on{' '}
+          <strong>{signedOnly.toLocaleString()}</strong> more bills that never reached a
+          vote — sponsored or cosponsored and left there. Those are on each member&apos;s own page.
+          A bill dying without a vote is the ordinary fate of most legislation, and a member&apos;s
+          signature on it is a choice nobody whipped.
+        </p>
+      )}
       {otherVotes > 0 && (
         <p className="small" style={{ marginTop: -6 }}>
           The delegation cast <strong>{allRolls.length.toLocaleString()}</strong> recorded votes in

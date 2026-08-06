@@ -15,3 +15,6 @@ pipeline/*.html
 
 # scratch
 _to_delete/
+
+# BILLSTATUS bulk archives — ~50MB, re-downloaded conditionally
+pipeline/data/

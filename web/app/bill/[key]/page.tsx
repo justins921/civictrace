@@ -6,7 +6,11 @@ import { BillArt } from '@/components/Art'
 export const revalidate = 3600
 
 export async function generateStaticParams() {
-  const { data } = await db.from('bill').select('bill_key').limit(120)
+  // Prerender the voted bills; the other ~2,200 render on demand. Building
+  // 2,419 static pages for a directory most readers reach through a member page
+  // is minutes of build time for pages nobody requested.
+  const { data } = await db.from('bill_profile').select('bill_key')
+    .eq('has_rollcall', true).limit(220)
   return (data || []).map((b: any) => ({ key: b.bill_key }))
 }
 

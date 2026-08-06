@@ -368,6 +368,11 @@ def main():
         run("FEC + legislators -> SQLite", "etl.py")
         run("roll calls", "fetch_votes.py")
         run("bills", "fetch_bills.py")
+        # After fetch_bills, which drops and rebuilds `bill`. This adds every
+        # bill a Wisconsin member sponsored or cosponsored, whether or not it
+        # ever reached a vote — 3,121 sponsorship records against the 80 the
+        # roll-call work list produced.
+        run("member bills + cosponsorship", "fetch_member_bills.py")
         # sectors.py before load_earmarks.py, not after. load_earmarks reads
         # bill_sector to decide which bills are too broad to score, and sectors.py
         # DROPs and rebuilds bill_sector — so in the old order `is_broad` was
