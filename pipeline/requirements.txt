@@ -1,1 +1,5 @@
 openpyxl==3.1.5
+# load_committees.py parses the congress-legislators YAML. Missing here meant
+# the next scheduled run would have died on `import yaml` — it only worked
+# locally because the dev container already had it.
+PyYAML==6.0.2

@@ -6,6 +6,12 @@
 #   SUPABASE_URL        https://vzvtlwfvncwwtzntndmy.supabase.co
 #   SUPABASE_ANON_KEY   the publishable key
 #   CT_INGEST_TOKEN     the write token
+#   FEC_API_KEY         openFEC key, free from api.open.fec.gov/developers
+#
+# FEC_API_KEY is optional in the sense that the run still succeeds without it —
+# fetch_totals.py falls back to DEMO_KEY, which is rate limited across every
+# anonymous user on the internet and is usually exhausted. Without a real key
+# the member pages lose their coverage lines on most days.
 #
 # The token only works with three database functions and can only touch the
 # eleven fact tables. It cannot read auth, edit corrections, or alter the schema.
@@ -23,6 +29,9 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    # M17 revalidation added ~700 conditional requests, taking a clean run from
+    # about 95 seconds to about 11 minutes. 60 is still generous; lower it and a
+    # slow day at the Clerk cancels a good refresh.
     timeout-minutes: 60
     defaults:
       run:
@@ -38,6 +47,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CT_INGEST_TOKEN: ${{ secrets.CT_INGEST_TOKEN }}
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
           CT_SOURCE: github actions
       # Blocks a bad refresh from standing: if any two routes to a published
       # total disagree, this fails and the run is marked failed.
