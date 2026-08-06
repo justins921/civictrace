@@ -190,6 +190,7 @@ LOAD = [
     ("14_assignment.committee_assignment", "committee_assignment", 200, True),
     ("15_ie.independent_expenditure",    "independent_expenditure", 120, True),
     ("15b_ie_agg.ie_agg",                "ie_agg",              50, True),
+    ("16_individual.individual_agg",     "individual_agg",     300, True),
 ]
 
 
@@ -387,6 +388,9 @@ def main():
         run("committee assignments", "load_committees.py")
         run("independent expenditures", "load_ie.py")
         run("candidate totals (openFEC)", "fetch_totals.py")
+        # 2 GB of itemized individual contributions, streamed and aggregated.
+        # Conditional download, so most days this is one 304.
+        run("individual contributions", "load_individuals.py")
         run("export", "export_json.py")
         run("timing provenance", "timing.py")
         # Gate BEFORE the swap, against the SQLite build, not after it against

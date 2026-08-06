@@ -221,6 +221,10 @@ dump("15_ie", "independent_expenditure", ies,
      ["bioguide","cand_id","cycle","spender_id","spender_name","support_oppose","amount",
       "iso_date","purpose","file_num","tran_id","image_num","amndt_ind","source_url"], per=120)
 
+indiv = [dict(r) for r in c.execute("SELECT * FROM individual_agg")]
+dump("16_individual", "individual_agg", indiv,
+     ["bioguide","cycle","dimension","key","donations","total"], per=300)
+
 ie_agg = [dict(r) for r in c.execute("""
     SELECT bioguide, cycle,
            SUM(CASE WHEN support_oppose='S' THEN amount ELSE 0 END) AS supporting,

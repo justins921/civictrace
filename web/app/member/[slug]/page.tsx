@@ -17,7 +17,7 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
 
   const [{ data: sectors }, { data: cmtes }, { data: trails }, { data: votes }, { data: ears },
          { data: totalsRows }, { data: ieRows }, { data: assigns },
-         { data: sponsored, error: sponsorErr }] =
+         { data: sponsored, error: sponsorErr }, { data: indivRows }] =
     await Promise.all([
       db.from('member_sector_money').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE),
       db.from('member_top_committee').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE)
@@ -47,6 +47,8 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
         .not('jurisdiction_sectors', 'is', null),
       db.from('bill_sponsor').select('*, bill(bill_key,title,bill_type,bill_num,policy_area)')
         .eq('bioguide', m.bioguide).order('sponsored_date', { ascending: false }),
+      db.from('individual_agg').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE)
+        .order('total', { ascending: false }),
     ])
 
   const secs = (sectors || []).slice().sort((a: any, b: any) => Number(b.total) - Number(a.total))
@@ -73,6 +75,14 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
   // rejected. Errors are not empty results.
   if (sponsorErr) throw new Error(`sponsorship query failed: ${sponsorErr.message}`)
   const cosponsored = (sponsored || []).filter((r: any) => r.bill)
+
+  const indiv_ = (indivRows || [])
+  const pick = (dim: string) => indiv_.filter((r: any) => r.dimension === dim)
+  const itemized = Number(pick('all')[0]?.total || 0)
+  const itemizedN = Number(pick('all')[0]?.donations || 0)
+  const homeState = Number(pick('state').find((r: any) => r.key === 'WI')?.total || 0)
+  const bands = pick('size_band')
+  const occupations = pick('occupation').slice(0, 8)
 
   return (
     <div className="wrap">
@@ -231,6 +241,86 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
               <a className="btn" style={{ marginTop: 12 }} href={(ears || [])[0].member_url}
                 target="_blank" rel="noopener noreferrer">Member&apos;s own disclosure page ↗</a>
             )}
+          </div>
+        </>
+      )}
+
+      {itemized > 0 && (
+        <>
+          <h2 className="section">Individual contributors</h2>
+          <p className="lede">
+            <strong>{money(itemized)}</strong> across{' '}
+            <strong>{itemizedN.toLocaleString()}</strong> itemized contributions
+            {indiv > 0 && <> — <strong>{Math.round((100 * itemized) / indiv)}%</strong> of the{' '}
+            {money(indiv)} in individual money this member reported</>}.
+          </p>
+          <div className="note">
+            <strong>We publish this as aggregates and will not publish it as a name index.</strong>{' '}
+            Federal law permits republishing individual contributor records, including names and
+            addresses — we checked, and we had it wrong before. But a searchable index of private
+            citizens by name, home address, employer and political giving is a different product
+            from a record of organised money, and it is the one that gets misused. What matters
+            publicly is <em>what kinds of people</em> fund a member, and that survives aggregation
+            intact. Employers and occupations with fewer than three donors are grouped rather than
+            named, because one donor at a small employer is identifiable from the employer alone.
+          </div>
+          {indiv > itemized && (
+            <div className="note">
+              <strong>The missing {money(indiv - itemized)} is not hidden — it is unitemized.</strong>{' '}
+              The FEC only requires a contributor be named once their giving passes $200 in
+              aggregate, so smaller donations appear in a member&apos;s total but in no public
+              record naming anyone. For this member that is{' '}
+              <strong>{Math.round((100 * (indiv - itemized)) / indiv)}%</strong> of their
+              individual money. Read a large unitemized share as a small-dollar base, not as
+              secrecy.
+            </div>
+          )}
+          <div className="grid g2">
+            <div className="card">
+              <div className="eyebrow">By size of contribution</div>
+              <table style={{ marginTop: 8 }}>
+                <thead><tr><th>Band</th><th className="num">Contributions</th>
+                  <th className="num">Total</th></tr></thead>
+                <tbody>
+                  {bands.map((b: any) => (
+                    <tr key={b.key}>
+                      <td className="small">{b.key}</td>
+                      <td className="num mono">{Number(b.donations).toLocaleString()}</td>
+                      <td className="num mono">{money(b.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {homeState > 0 && (
+                <div className="tiny card-foot">
+                  <strong>{Math.round((100 * homeState) / itemized)}%</strong> of this money came
+                  from Wisconsin addresses ({money(homeState)}). The rest came from outside the
+                  state the member represents.
+                </div>
+              )}
+            </div>
+            <div className="card">
+              <div className="eyebrow">By occupation as filed</div>
+              <table style={{ marginTop: 8 }}>
+                <thead><tr><th>Occupation</th><th className="num">Donors</th>
+                  <th className="num">Total</th></tr></thead>
+                <tbody>
+                  {occupations.map((o: any) => (
+                    <tr key={o.key}>
+                      <td className="small clamp2">{o.key}</td>
+                      <td className="num mono">{Number(o.donations).toLocaleString()}</td>
+                      <td className="num mono">{money(o.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="tiny card-foot">
+                Occupation is typed by the contributor or the campaign, not chosen from a list.
+                We fold the obvious spelling variants of &ldquo;retired&rdquo; and
+                &ldquo;self-employed&rdquo; together and otherwise leave every entry exactly as
+                filed — tidying, not classification.
+              </div>
+            </div>
           </div>
         </>
       )}
