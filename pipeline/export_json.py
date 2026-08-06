@@ -179,6 +179,55 @@ dump("10_trail", "money_trail", trails, ["vote_key","bioguide","cycle","bill_key
      "opposed_side_dollars","pac_count","days_since_last_sector_contribution","party_line_share_pct",
      "minority_share_pct","voted_with_chamber","voted_with_party","position","rank"], per=90)
 
+# ---- context sources (August 2026 sources review) ----------------------------
+# None of these feed a trail, a sector total, or the reconciliation. They exist
+# so the site can qualify the money it does publish rather than presenting a
+# 4.5%-of-receipts PAC figure and a 64%-of-receipts PAC figure identically.
+wi_bios = tuple(m["bioguide"] for m in members)
+_q = ",".join("?" * len(wi_bios))
+
+totals = [dict(r) for r in c.execute("SELECT * FROM candidate_totals")]
+dump("12_totals", "candidate_totals", totals,
+     ["bioguide","cand_id","cycle","receipts","individual","pac","party","self_funded",
+      "transfers","disbursements","cash_on_hand","coverage_end","source_url"], per=50)
+
+spons = [dict(r) for r in c.execute(
+    f"SELECT * FROM bill_sponsor WHERE bioguide IN ({_q})", wi_bios)]
+dump("13_sponsor", "bill_sponsor", spons,
+     ["bill_key","bioguide","role","sponsored_date","is_original","withdrawn_date",
+      "full_name","party","state"], per=200)
+
+assigns = [dict(r) for r in c.execute(f"""
+    SELECT ca.bioguide, ca.thomas_id, ca.committee_name, ca.chamber, ca.parent_id,
+           ca.is_subcommittee, ca.title, ca.rank,
+           (SELECT GROUP_CONCAT(DISTINCT cj.sector) FROM committee_jurisdiction cj
+             WHERE cj.thomas_id = ca.thomas_id) AS jurisdiction_sectors,
+           (SELECT GROUP_CONCAT(DISTINCT cj.rule_id) FROM committee_jurisdiction cj
+             WHERE cj.thomas_id = ca.thomas_id) AS rule_ids
+    FROM committee_assignment ca WHERE ca.bioguide IN ({_q})""", wi_bios)]
+dump("14_assignment", "committee_assignment", assigns,
+     # NB: not called `sectors`. That name is in JSONCOLS and gets json.loads()d
+     # on the way out, which turned a comma-joined string into a parse error.
+     ["bioguide","thomas_id","committee_name","chamber","parent_id","is_subcommittee",
+      "title","rank","jurisdiction_sectors","rule_ids"], per=200)
+
+ies = [dict(r) for r in c.execute(
+    "SELECT * FROM independent_expenditure WHERE quarantined = 0")]
+dump("15_ie", "independent_expenditure", ies,
+     ["bioguide","cand_id","cycle","spender_id","spender_name","support_oppose","amount",
+      "iso_date","purpose","file_num","tran_id","image_num","amndt_ind","source_url"], per=120)
+
+ie_agg = [dict(r) for r in c.execute("""
+    SELECT bioguide, cycle,
+           SUM(CASE WHEN support_oppose='S' THEN amount ELSE 0 END) AS supporting,
+           SUM(CASE WHEN support_oppose='O' THEN amount ELSE 0 END) AS opposing,
+           COUNT(*) AS filings,
+           (SELECT COUNT(*) FROM independent_expenditure q
+             WHERE q.bioguide = ie.bioguide AND q.quarantined = 1) AS quarantined
+    FROM independent_expenditure ie WHERE quarantined = 0 GROUP BY 1,2""")]
+dump("15b_ie_agg", "ie_agg", ie_agg,
+     ["bioguide","cycle","supporting","opposing","filings","quarantined"], per=50)
+
 tot = sum(p.stat().st_size for p in FILES)
 print(f"\n{len(FILES)} files, {tot/1024:.0f} KB total")
 (OUT / "MANIFEST.txt").write_text("\n".join(sorted(p.name for p in FILES)))

@@ -185,6 +185,11 @@ LOAD = [
     ("09_earmark.earmark",               "earmark",             60, True),
     ("09b_earmark_agg.earmark_agg",      "earmark_agg",         50, True),
     ("10_trail.money_trail",             "money_trail",         50, True),
+    ("12_totals.candidate_totals",       "candidate_totals",    50, True),
+    ("13_sponsor.bill_sponsor",          "bill_sponsor",       200, True),
+    ("14_assignment.committee_assignment", "committee_assignment", 200, True),
+    ("15_ie.independent_expenditure",    "independent_expenditure", 120, True),
+    ("15b_ie_agg.ie_agg",                "ie_agg",              50, True),
 ]
 
 
@@ -370,6 +375,13 @@ def main():
         # database it was computed from nothing at all.
         run("classification", "sectors.py")
         run("earmarks", "load_earmarks.py")
+        # Context sources, added after the August 2026 sources review. None of
+        # them feed a trail or a total; they exist so the site can say how much
+        # of the money each figure covers, and whether the member sits on the
+        # committee that writes the bills in question.
+        run("committee assignments", "load_committees.py")
+        run("independent expenditures", "load_ie.py")
+        run("candidate totals (openFEC)", "fetch_totals.py")
         run("export", "export_json.py")
         run("timing provenance", "timing.py")
         # Gate BEFORE the swap, against the SQLite build, not after it against

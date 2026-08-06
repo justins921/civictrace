@@ -15,7 +15,9 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
   const { data: m } = await db.from('member').select('*').eq('slug', slug).single()
   if (!m) notFound()
 
-  const [{ data: sectors }, { data: cmtes }, { data: trails }, { data: votes }, { data: ears }] =
+  const [{ data: sectors }, { data: cmtes }, { data: trails }, { data: votes }, { data: ears },
+         { data: totalsRows }, { data: ieRows }, { data: assigns },
+         { data: sponsored, error: sponsorErr }] =
     await Promise.all([
       db.from('member_sector_money').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE),
       db.from('member_top_committee').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE)
@@ -35,6 +37,16 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
         // true even when the cap bites. Max today is 283 per member.
         .order('iso_date', { referencedTable: 'rollcall', ascending: false }).limit(1000),
       db.from('earmark').select('*').eq('bioguide', m.bioguide).order('amount', { ascending: false }),
+      // Context, never arithmetic. `candidate_totals` is the denominator this
+      // page was missing: PAC money is 64% of Gwen Moore's receipts and 4.5% of
+      // Tammy Baldwin's, and printing both the same way implied the trail below
+      // means the same thing for both members. It does not.
+      db.from('candidate_totals').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE),
+      db.from('ie_agg').select('*').eq('bioguide', m.bioguide).eq('cycle', CYCLE),
+      db.from('committee_assignment').select('*').eq('bioguide', m.bioguide)
+        .not('jurisdiction_sectors', 'is', null),
+      db.from('bill_sponsor').select('*, bill(bill_key,title,bill_type,bill_num,policy_area)')
+        .eq('bioguide', m.bioguide).order('sponsored_date', { ascending: false }),
     ])
 
   const secs = (sectors || []).slice().sort((a: any, b: any) => Number(b.total) - Number(a.total))
@@ -44,6 +56,23 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
     .sort((a: any, b: any) => (b.rollcall.iso_date > a.rollcall.iso_date ? 1 : -1))
     .slice(0, 15)
   const earTotal = (ears || []).reduce((a: number, e: any) => a + Number(e.amount), 0)
+
+  // Sum across committees: a member can have more than one candidate ID.
+  const receipts = (totalsRows || []).reduce((a: number, r: any) => a + Number(r.receipts || 0), 0)
+  const indiv = (totalsRows || []).reduce((a: number, r: any) => a + Number(r.individual || 0), 0)
+  const fecPac = (totalsRows || []).reduce((a: number, r: any) => a + Number(r.pac || 0), 0)
+  const covered = receipts > 0 ? (100 * total) / receipts : null
+  const fecUrl = (totalsRows || [])[0]?.source_url || null
+  const ie = (ieRows || [])[0] || null
+  const jurisdiction = Array.from(new Set(
+    (assigns || []).flatMap((a: any) => String(a.jurisdiction_sectors || '').split(',')))).filter(Boolean)
+  // Third time this pattern has bitten: a failed PostgREST query returns an
+  // error and no rows, and a section that renders nothing looks identical to a
+  // member who sponsored nothing. This one failed for a week's worth of builds
+  // because bill_sponsor had no declared foreign key to bill, so the embed was
+  // rejected. Errors are not empty results.
+  if (sponsorErr) throw new Error(`sponsorship query failed: ${sponsorErr.message}`)
+  const cosponsored = (sponsored || []).filter((r: any) => r.bill)
 
   return (
     <div className="wrap">
@@ -71,6 +100,52 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
           <div className="small">{(cmtes || []).length}+ committees · giver-side ledger</div>
         </div>
       </div>
+
+      {receipts > 0 && (
+        <div className="note" style={{ marginTop: 16 }}>
+          <strong>How much of this member&apos;s money you are looking at:{' '}
+          {covered !== null && covered < 1 ? '<1' : Math.round(covered || 0)}%.</strong>{' '}
+          They reported <strong>{money(receipts)}</strong> in total receipts this cycle.
+          CivicTrace traces the <strong>{money(total)}</strong> that came directly from political
+          committees. The largest part of the rest is{' '}
+          <strong>{money(indiv)}</strong> from individual contributors, which we do not publish —
+          see <Link href="/donors">why</Link>.{' '}
+          {covered !== null && covered < 15 && (
+            <>Read the trails below with that in mind: for this member the money we can trace is a
+            small slice of the money they raised, so the absence of an overlap here is not
+            evidence that none exists.</>
+          )}
+          {fecUrl && <> <a href={fecUrl} target="_blank" rel="noopener noreferrer">Check the FEC&apos;s
+            own totals ↗</a></>}
+        </div>
+      )}
+
+      {ie && (Number(ie.supporting) > 0 || Number(ie.opposing) > 0) && (
+        <div className="note">
+          <strong>Independent spending is a separate ledger and we never add it to the
+          above.</strong> Outside groups reported{' '}
+          <strong>{money(ie.supporting)}</strong> supporting and{' '}
+          <strong>{money(ie.opposing)}</strong> opposing this member across{' '}
+          {Number(ie.filings).toLocaleString()} filings this cycle. That is money spent{' '}
+          <em>about</em> a candidate, not money <em>to</em> them — it is subject to no
+          contribution limit, and the candidate is legally barred from coordinating it. Two
+          different things, shown next to each other, never summed.
+          {Number(ie.quarantined) > 0 && (
+            <> {Number(ie.quarantined)} further filing(s) were withheld as implausible; the FEC&apos;s
+            bulk file is filer-submitted and unvalidated, and currently contains multi-billion-dollar
+            entries that are plainly not real.</>
+          )}
+        </div>
+      )}
+
+      {jurisdiction.length > 0 && (
+        <div className="note">
+          <strong>Committees of jurisdiction:</strong> {jurisdiction.join(' · ')}. Money from an
+          industry to a member who writes the laws for it is a different fact from the same money
+          to a member with no jurisdiction over it. We record which one this is; whether it
+          matters is your call.
+        </div>
+      )}
 
       <h2 className="section">Where the money came from</h2>
       <div className="grid g2">
@@ -146,6 +221,47 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
               <a className="btn" style={{ marginTop: 12 }} href={(ears || [])[0].member_url}
                 target="_blank" rel="noopener noreferrer">Member&apos;s own disclosure page ↗</a>
             )}
+          </div>
+        </>
+      )}
+
+      {cosponsored.length > 0 && (
+        <>
+          <h2 className="section">Bills this member sponsored or cosponsored</h2>
+          <p className="lede">
+            <strong>{cosponsored.length}</strong> of the bills in our record, with the date they
+            signed on. This is here because it is a better question than the one the rest of this
+            page asks. A floor vote is scheduled by leadership, whipped by the party, and usually
+            decided before it is cast — 87% of our money trails come back &ldquo;no signal&rdquo;
+            partly for that reason. Cosponsoring is voluntary, individually attributable, dated,
+            and nobody is counting votes on it.
+          </p>
+          <div className="card">
+            <table>
+              <thead><tr><th>Bill</th><th>Policy area</th><th>Role</th>
+                <th className="mono">Signed on</th></tr></thead>
+              <tbody>
+                {cosponsored.slice(0, 25).map((r: any) => (
+                  <tr key={r.bill_key + r.role}>
+                    <td><Link href={hrefFor.bill(r.bill_key)} className="clamp2"
+                      title={r.bill.title}>{r.bill.title}</Link></td>
+                    <td className="small">{r.bill.policy_area || '—'}</td>
+                    <td className="small">
+                      {r.role === 'sponsor' ? <strong>sponsor</strong>
+                        : r.is_original ? 'original cosponsor' : 'cosponsor'}
+                      {r.withdrawn_date && <div className="tiny">withdrawn {r.withdrawn_date}</div>}
+                    </td>
+                    <td className="small mono">{r.sponsored_date || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="tiny card-foot">
+              From the same GovInfo BILLSTATUS XML as every bill page. A withdrawn cosponsorship
+              keeps its row and its date — a member who signed on and then backed off is part of
+              the record.
+              {cosponsored.length > 25 && <> Showing 25 of {cosponsored.length}.</>}
+            </div>
           </div>
         </>
       )}

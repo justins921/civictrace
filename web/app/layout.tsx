@@ -97,9 +97,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                       {f.unresolved_error && <> · <span style={{ color: '#b23c45' }}>last run failed</span></>}
                     </>
                   : <span style={{ color: '#b23c45' }}>no successful data refresh is on record</span>}
-                . FEC contributor names and addresses may not be sold or used to solicit
-                contributions (52 U.S.C. §30111(a)(4)); this site publishes committee-level
-                contributions only.
+                . This site publishes committee-level contributions only. That is an editorial
+                choice, not a legal requirement — 52 U.S.C. §30111(a)(4) restricts selling
+                contributor data or using it to solicit, and the FEC&apos;s guidance exempts news
+                and opinion sites from republishing limits. See{' '}
+                <Link href="/methodology">methodology</Link>.
               </div>
             </div>
           </div>

@@ -90,11 +90,22 @@ export default async function Donors({ searchParams }:
       </p>
 
       <div className="note">
-        <strong>&ldquo;Donor&rdquo; here means a committee, not a person.</strong> Federal law
-        forbids using FEC contributor names and addresses to solicit contributions or for
-        commercial purposes (52 U.S.C. §30111(a)(4)), so CivicTrace publishes committee-level
-        giving only — no individual donors, ever. A committee&apos;s sector label is assigned by a
-        published rule, and the rule ID is printed on every row so you can check our work.
+        <strong>&ldquo;Donor&rdquo; here means a committee, not a person — and that is our
+        choice, not the law&apos;s.</strong> We previously said federal law forbade publishing
+        individual contributor data. That was wrong, and it is corrected here and in the{' '}
+        <Link href="/corrections">corrections log</Link>. 52 U.S.C. §30111(a)(4) forbids{' '}
+        <em>selling</em> contributor names and addresses, or using them to solicit contributions
+        or for commercial purposes. 11 CFR 104.15(c) and the FEC&apos;s own guidance both say the
+        restriction does not apply to news and opinion websites republishing the data.
+      </div>
+      <div className="note">
+        <strong>So why only committees?</strong> Because &ldquo;we may&rdquo; is not &ldquo;we
+        should&rdquo;. A searchable index of private citizens by name, home address, employer and
+        political giving is a different product from a record of organised money, and it is the
+        one that gets misused. We expect to publish individual giving in aggregate — by employer
+        and occupation — rather than as lookup-by-name records. A committee&apos;s sector label is
+        assigned by a published rule, and the rule ID is printed on every row so you can check
+        our work.
       </div>
 
       {recon && Number(recon.committees_net_refunded) > 0 && (

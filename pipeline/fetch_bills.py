@@ -9,12 +9,28 @@ con = sqlite3.connect(Path(__file__).parent / "civictrace.db"); c = con.cursor()
 
 DDL = """
 DROP TABLE IF EXISTS bill;
+DROP TABLE IF EXISTS bill_sponsor;
 CREATE TABLE bill (
   bill_key TEXT PRIMARY KEY, congress INTEGER, bill_type TEXT, bill_num TEXT,
   title TEXT, policy_area TEXT, subjects TEXT, sponsor_name TEXT, sponsor_bioguide TEXT,
   sponsor_party TEXT, sponsor_state TEXT, intro_date TEXT, latest_action TEXT,
   latest_action_date TEXT, summary TEXT, source_url TEXT, congressgov_url TEXT
 );
+
+-- Sponsorship and cosponsorship, which this script downloaded and discarded for
+-- months. A floor vote is whipped, scheduled by leadership, and usually decided
+-- before it is cast; 87% of our trails come back "party-line" or
+-- "near-unanimous" for that reason. Cosponsorship is none of those things — it
+-- is voluntary, individually attributable, dated, and nobody is counting votes
+-- on it. It is a better dependent variable than the one the site was built on,
+-- and it was sitting in the same XML the whole time.
+CREATE TABLE bill_sponsor (
+  bill_key TEXT, bioguide TEXT, role TEXT,          -- 'sponsor' | 'cosponsor'
+  sponsored_date TEXT, is_original INTEGER, withdrawn_date TEXT,
+  full_name TEXT, party TEXT, state TEXT,
+  PRIMARY KEY (bill_key, bioguide, role)
+);
+CREATE INDEX ix_bs_bio ON bill_sponsor(bioguide);
 """
 
 # The House Clerk writes "H R 1234"; the Senate LIS writes "H.R. 1234" and
@@ -79,6 +95,7 @@ def main():
             skipped.append(legis); continue
         wanted[f"{congress}{p[0]}{p[1]}"] = (congress, p[0], p[1])
 
+    n_sponsor = [0]
     unreachable = []   # our problem: transport errors, unparseable XML
     absent = []        # GovInfo's schedule: an authoritative 404
     done = 0
@@ -111,6 +128,28 @@ def main():
             unreachable.append(f"{key} (XML has no <bill> element)"); continue
         sp = b.find("sponsors/item")
         sm = b.find("summaries/summary")
+
+        # Sponsors first, then cosponsors. A withdrawn cosponsorship keeps its
+        # row and its withdrawal date: a member who signed on and then backed
+        # off is a fact about the record, and deleting it would be the kind of
+        # quiet tidying this project exists to not do.
+        people = []
+        if sp is not None:
+            people.append((sp, "sponsor", None, None))
+        for x in b.findall("cosponsors/item"):
+            people.append((x, "cosponsor",
+                           1 if (x.findtext("isOriginalCosponsor") or "").strip().lower() == "true" else 0,
+                           x.findtext("sponsorshipWithdrawnDate")))
+        for el, role, orig, withdrawn in people:
+            bio = (el.findtext("bioguideId") or "").strip()
+            if not bio:
+                continue
+            c.execute("INSERT OR REPLACE INTO bill_sponsor VALUES (?,?,?,?,?,?,?,?,?)", (
+                key, bio, role,
+                (el.findtext("sponsorshipDate") or b.findtext("introducedDate")),
+                orig, withdrawn,
+                el.findtext("fullName"), el.findtext("party"), el.findtext("state")))
+            n_sponsor[0] += 1
         subs = sorted({s.findtext("name") for s in b.iter("legislativeSubject") if s.findtext("name")})
         c.execute("INSERT OR REPLACE INTO bill VALUES (%s)" % ",".join("?" * 17), (
             key, congress, bt, bn, b.findtext("title"), b.findtext("policyArea/name"),
@@ -130,6 +169,10 @@ def main():
         else "amendment" if "AMDT" in (s or "").upper()
         else "procedural" for s in skipped)
     print(f"bills stored: {done} of {len(wanted)} distinct bills referenced by a roll call")
+    wi = {r[0] for r in c.execute("SELECT bioguide FROM member WHERE state='WI'")}
+    wi_n = c.execute("SELECT COUNT(*) FROM bill_sponsor WHERE bioguide IN (%s)"
+                     % ",".join("?" * len(wi)), tuple(wi)).fetchone()[0] if wi else 0
+    print(f"sponsorship records: {n_sponsor[0]} total, {wi_n} by a Wisconsin member")
     print(f"  not bills at all: {len(skipped)} roll-call subjects "
           f"({', '.join(f'{v} {k}' for k, v in kinds.most_common())})")
     for r in c.execute("SELECT policy_area, COUNT(*) FROM bill GROUP BY 1 ORDER BY 2 DESC LIMIT 15"):

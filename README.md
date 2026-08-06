@@ -1,72 +1,57 @@
 # CivicTrace — Wisconsin prototype
 
-Nonpartisan public-records platform. Campaign finance, roll-call votes, bills and
-earmarks for Wisconsin's ten federal members, traced to the original filing.
+Working reference implementation for the CivicTrace v1.0 PRD. Everything here runs
+against live government data; no figure in this repo is invented or estimated.
 
-Live: https://civictrace.vercel.app
+## Run it
 
-## What's in here
+```bash
+pip install openpyxl
+python3 etl.py            # FEC bulk + congress-legislators -> SQLite
+python3 fetch_votes.py    # House Clerk + Senate roll call XML  (~8 min, polite delays)
+python3 fetch_bills.py    # GovInfo BILLSTATUS XML
+python3 sectors.py        # classification ruleset
+python3 load_earmarks.py  # House FY26 CPF earmarks + data fixes
+python3 build_site.py     # -> civictrace-wisconsin.html
+```
 
-    web/                        Next.js 15 App Router site, deployed on Vercel
-    pipeline/                   Python ETL and the daily refresh job
-    .github/workflows/daily.yml scheduled refresh, ready to run once this is a repo
-    pipeline/CivicTrace-PRD-v1.md   the engineering PRD
-    pipeline/README-daily.md        how the refresh works and how to schedule it
+`data/` holds the raw source files exactly as downloaded. Keep them — the archive
+IS the evidence.
 
-## First two things to do with this zip
+## Read the code in this order
 
-**1. Push it to GitHub.** It fixes three things at once:
+1. `sectors.py` — the classification ruleset. Every rule has an ID.
+2. `trail.py` — the money-trail engine. The header comment states the four rules
+   the whole project depends on.
+3. `build_site.py` — the UI, including every mandatory disclaimer.
 
-* the daily refresh starts working — `.github/workflows/daily.yml` runs it free,
-  on schedule, with logs; add the three secrets listed in that file
-* the Vercel deployment stops being a bootstrap. Connect the repo to the existing
-  project, then clear the custom Install Command and delete the `preinstall`
-  script from `web/package.json`
-* you get history, which a project whose whole claim is "check our work" needs
+## Sources
 
-**2. Set `NEXT_PUBLIC_CONTACT_EMAIL` in Vercel.** Until it is set, /contact and
-/corrections render a banner saying the site is not launch-ready. That is
-deliberate — do not promote the site before it is set.
+FEC bulk downloads · US House Clerk EVS · US Senate LIS · GovInfo BILLSTATUS ·
+unitedstates/congress-legislators (CC0) · House Appropriations FY26 CPF file ·
+openFEC candidate totals · FEC independent expenditure bulk file
 
-## Running the site locally
+### On individual contributor data
 
-    cd web
-    npm install
-    npm run dev          # http://localhost:3000
+This prototype publishes committee-level contributions only. **That is an
+editorial choice, not a legal requirement**, and an earlier version of this file
+said otherwise.
 
-It reads Supabase over the public key with SELECT-only RLS, so it runs with no
-secrets at all.
+52 U.S.C. §30111(a)(4) prohibits *selling* contributor names and addresses, and
+using them to solicit contributions or for commercial purposes. It does not
+prohibit republication. 11 CFR 104.15(c) permits use "in newspapers, magazines,
+books or other similar communications", and the FEC's own guidance says
+explicitly that news and opinion websites may republish individual contributor
+information. *FEC v. Political Contributions Data, Inc.*, 943 F.2d 190 (2d Cir.
+1991) read "commercial purposes" narrowly on First Amendment grounds.
 
-## The rules this codebase enforces
+We publish committee giving because a searchable index of private citizens by
+name, home address, employer and political giving is a different product from a
+record of organised money, and it is the one that gets misused. When individual
+giving is added it will be aggregated by employer and occupation, not offered as
+lookup-by-name.
 
-These are product requirements, not style preferences, and most of them cost us
-findings we could otherwise have shown:
-
-1. **Absence is not a position.** "Not Voting" and "Present" are excluded as a
-   member's position and from every denominator. Counting them once produced a
-   trail claiming a member's party was split 27% on a bill that passed 350–5.
-2. **Omnibus bills produce nothing.** A bill touching every sector cannot support
-   a sector-alignment reading, so the engine refuses to compute one.
-3. **Near-unanimous votes carry no signal**, and are labelled that way rather than
-   dropped, so a reader can see how often that is the answer.
-4. **Ledger sides are never mixed silently.** We publish giver-side figures (FEC
-   Schedule B); the FEC candidate page shows recipient-side (Schedule A). They
-   never tie. The site says so, with a worked example.
-5. **Opposing money ships with aligned money wherever the classifier has an
-   opposing side.** Today only Energy & Utilities does, so almost every trail
-   reports $0 opposing — which means *not classified*, not *checked and none
-   found*. Known gap from the August 2026 outside review; the trail pages now
-   say so instead of letting the zero imply a check that did not happen.
-6. **Every classification carries a rule ID**, printed on the page.
-7. **No causal verbs.** Not "because", not "in exchange for", not "bought".
-8. **Every correction is published**, including the ones we found ourselves.
-
-## Known gaps, on the record
-
-* Lobbying (LDA) filings are not loaded — hence no Lobbyists nav item.
-* State legislature and state campaign finance are not loaded. Read Wis. Stat.
-  § 11.1304(12) before building anything paid on top of state records.
-* About 45% of committee money classifies as "Trade / Membership" or
-  "Unclassified" rather than a named industry. Logged on /corrections.
-* Independent expenditures are excluded from the money figures — that is spending
-  *about* a candidate, not money *to* them.
+**Wisconsin state data is a different question and the caution there stands.**
+Wis. Stat. §11.1304(12) forbids any commercial use of information copied from
+state campaign finance reports, with no media exception and no state analogue to
+11 CFR 104.15(c).
