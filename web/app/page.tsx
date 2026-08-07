@@ -92,7 +92,10 @@ export default async function Home() {
             ))}
         </div>
 
-        <h2 className="section">The three worth reading first</h2>
+        <h2 className="section">
+          {(trails || []).length === 1 ? 'The one worth reading first'
+            : `The ${(trails || []).length} worth reading first`}
+        </h2>
         {(counts[LABELS[0]] || 0) === 0 && (
           <div className="note">
             <strong>Nothing currently carries our strongest label, and we would rather say so than
@@ -123,7 +126,7 @@ export default async function Home() {
           {(trails || []).map((t: any) => (
             <Link key={t.vote_key + t.bioguide} href={trailHref(t)} className="card"
               style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>
-              <span className={`badge ${labelClass(t.label).badge}`}>{t.label}</span>
+              <span className={`badge ${labelClass(t.display_label ?? t.label).badge}`}>{t.display_label ?? t.label}</span>
               <h3 className="clamp3" style={{ marginTop: 12 }}
                 title={t.bill_title || t.vote_desc}>{t.bill_title || t.vote_desc}</h3>
               <div className="small" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>

@@ -12,6 +12,10 @@ type Sector = { sector: string; evidence: string }
 export type Trail = {
   vote_key: string; bioguide: string; cycle: number; bill_key: string | null
   label: string; label_why: string
+  /** What the reader is shown: the stored label, with a one-sidedness claim
+      the row's own figures do not support stripped out. See the note in
+      labelCounts(). `label_stale` is true exactly when they differ. */
+  display_label?: string; label_stale?: boolean; one_sided_supported?: boolean
   sectors: Sector[]; top_pacs: Pac[]
   sector_dollars: number; sector_share_pct: number; total_pac_dollars: number
   /* `larger_pole_dollars` / `smaller_pole_dollars` are what these are. The
@@ -82,7 +86,8 @@ function SourceCard({ n, kind, who, value, meta, href, label }: {
 }
 
 export function TrailView({ t }: { t: Trail }) {
-  const lc = labelClass(t.label)
+  const lc = labelClass(t.display_label ?? t.label)
+  const partyShare = t.party_line_share_pct
   const largerPole = t.larger_pole_dollars ?? t.aligned_side_dollars
   const smallerPole = t.smaller_pole_dollars ?? t.opposed_side_dollars
   const top = t.top_pacs?.[0]
@@ -171,17 +176,53 @@ export function TrailView({ t }: { t: Trail }) {
                 this bill. Contributions, an industry label and a vote do not
                 establish that. This measures sector overlap and says so. */}
             <div className="eyebrow">Sector overlap</div>
-            <div className={`verdict ${lc.verdict}`}>{t.label}</div>
-            <div className="small">{t.label_why}</div>
+            <div className={`verdict ${lc.verdict}`}>{t.display_label ?? t.label}</div>
+            {t.label_stale ? (
+              <div className="small">
+                <strong>This row was classified before our current rule and is waiting on
+                tonight&apos;s refresh.</strong> It was stored as &ldquo;{t.label}&rdquo;. Calling
+                money one-sided now requires a declared two-sided industry axis, at least half the
+                industry&apos;s money placed on its two poles, and one pole at least twice the
+                other — and this row&apos;s own figures, shown below, do not meet that. The label
+                above is the corrected one; the sentence that was stored with the old label is not
+                shown, because it argues for a claim we have withdrawn.
+              </div>
+            ) : (
+              <div className="small">{t.label_why}</div>
+            )}
+            {/* This paragraph used to describe "the strongest label" in fixed
+                text on every trail page, including trails that do not carry it.
+                On H.R. 1346 that put "the member broke from their own party"
+                on a page reporting 57.5% of the party voting the same way, and
+                a reader has no reason to read a sentence on this page as being
+                about a different page. It says what *this* trail's numbers say
+                now, and the party sentence is chosen from the actual share. */}
             <div className="tiny" style={{ marginTop: 8 }}>
               This label is computed from three things: how much of the member&apos;s PAC money
               came from the bill&apos;s industry, how contested the vote was, and{' '}
               <strong>how this member voted relative to their own party</strong>. It does{' '}
               <strong>not</strong> claim the member voted the way their donors wanted — deciding
               what a bill does to an industry is a judgement call, and CivicTrace does not make
-              it. So the strongest label here means the member broke from their own party on a
-              contested vote while one side of that industry was funding them. It does not mean
-              they voted for that side.
+              it, so no label on this site means &ldquo;voted with their funders&rdquo;.
+              {partyShare != null && (
+                <>
+                  {' '}On this vote,{' '}
+                  {partyShare < 50 ? (
+                    <><strong>{partyShare}%</strong> of {t.full_name}&apos;s own party voted the
+                    same way — a minority of it. That is what &ldquo;crossed party&rdquo; means
+                    here, and it is the only case in which we use the phrase.</>
+                  ) : partyShare < 75 ? (
+                    <><strong>{partyShare}%</strong> of {t.full_name}&apos;s own party voted the
+                    same way. The party divided, and this member was on the larger side of the
+                    division. They did <strong>not</strong> break from their party.</>
+                  ) : (
+                    <><strong>{partyShare}%</strong> of {t.full_name}&apos;s own party voted the
+                    same way — most of it. Whatever was close about this vote was close in the
+                    chamber, not in this member&apos;s party. They did <strong>not</strong> break
+                    from their party.</>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

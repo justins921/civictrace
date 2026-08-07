@@ -107,10 +107,19 @@ for (const dir of DIRS) {
     // the file. `let qy = db.from(...); qy = qy.eq(...); qy = qy.range(...)`
     // is a legitimate and common shape and must not trip the check.
     const boundedVars = new Set()
+    // The bound is often several links down a chain — `q.order(..).limit(n)` —
+    // so resolve the identifier the chain is rooted at rather than only
+    // accepting `q.limit(n)` written directly. Without this the checker
+    // reported a false positive on a query that was bounded two calls later,
+    // which is the fastest way to teach people to reach for the escape hatch.
+    const rootIdent = (n) => {
+      while (n && (ts.isPropertyAccessExpression(n) || ts.isCallExpression(n))) n = n.expression
+      return n && ts.isIdentifier(n) ? n.text : null
+    }
     const collect = (n) => {
       if (ts.isPropertyAccessExpression(n) && BOUNDED.has(n.name.text)) {
-        const base = n.expression
-        if (ts.isIdentifier(base)) boundedVars.add(base.text)
+        const base = rootIdent(n.expression)
+        if (base) boundedVars.add(base)
       }
       ts.forEachChild(n, collect)
     }

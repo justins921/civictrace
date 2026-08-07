@@ -50,17 +50,46 @@ export default async function Search({ searchParams }:
     const contains = `%${esc(q)}%`
     const startsWith = `${esc(q)}%`
     const only = (qy: any) => (kind ? qy.eq('kind', kind) : qy)
+    /* PostgREST's `or=` is a comma-separated list wrapped in parentheses, so a
+       term containing a comma, a quote or a bracket would change the shape of
+       the filter rather than be searched for. Those characters are rare in a
+       name or a bill number; when one appears we drop to the single-column
+       form rather than trying to escape our way out of a grammar. */
+    const orPrefix = /["',()\\]/.test(q) ? null : esc(q)
+
+    /* Built as statements rather than one expression so the bound is visibly
+       attached to the query it bounds — `npm run check:bounds` reads the chain
+       and a `.limit()` applied outside a ternary is a bound it cannot see, and
+       should not have to guess at. */
+    const tier = (mode: 'prefix' | 'contains') => {
+      let x: any = db.from('search_index').select('*')
+      if (kind) x = x.eq('kind', kind)
+      if (mode === 'prefix') {
+        /* The display name — or the identifier under it — starts with what
+           they typed. Searching "H.R. 1346" used to surface, first, a
+           procedural rule whose 900-word title mentions H.R. 1346 five clauses
+           in, because both rows are bills and the tie broke alphabetically. A
+           bill's number lives in its subtitle, so a subtitle prefix match is
+           the strongest available signal that this is the row they asked for. */
+        x = orPrefix
+          ? x.or(`title.ilike."${orPrefix}%",subtitle.ilike."${orPrefix}%"`)
+          : x.ilike('title', startsWith)
+      } else {
+        x = x.ilike('search_text', contains).not('title', 'ilike', startsWith)
+        if (orPrefix) x = x.not('subtitle', 'ilike', startsWith)
+      }
+      return x.order('amount', { ascending: false, nullsFirst: false })
+              .order('title').limit(SHOW)
+    }
 
     const [totalCount, kindCounts, { data: pre }, { data: rest }] = await Promise.all([
-      countRows('search_index', (qy: any) => only(qy).ilike('title', contains)),
+      countRows('search_index', (qy: any) => only(qy).ilike('search_text', contains)),
       Promise.all(KINDS.map(async (k) => [
-        k, await countRows('search_index', (qy: any) => qy.eq('kind', k).ilike('title', contains)),
+        k, await countRows('search_index',
+          (qy: any) => qy.eq('kind', k).ilike('search_text', contains)),
       ] as const)),
-      only(db.from('search_index').select('*').ilike('title', startsWith))
-        .order('amount', { ascending: false, nullsFirst: false }).order('title').limit(SHOW),
-      only(db.from('search_index').select('*').ilike('title', contains))
-        .not('title', 'ilike', startsWith)
-        .order('amount', { ascending: false, nullsFirst: false }).order('title').limit(SHOW),
+      tier('prefix'),
+      tier('contains'),
     ])
 
     matched = totalCount

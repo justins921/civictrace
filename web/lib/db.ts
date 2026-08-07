@@ -86,7 +86,13 @@ export const LABELS = [
    to the same bucket as a member who voted with their party. */
 export const NO_SIGNAL_LABELS: readonly string[] = [LABELS[4], LABELS[5]]
 
-export function labelClass(label: string) {
+export function labelClass(label?: string | null) {
+  /* Tolerates undefined on purpose. A view column that is briefly absent —
+     PostgREST caches the schema and reloads it after DDL, so `select('*')` can
+     return yesterday's column set for a few seconds after a migration — used
+     to take the whole page down with "cannot read properties of undefined".
+     A missing label should render as the neutral badge, not a 500. */
+  label = label || ''
   if (label.startsWith('Crossed party, one-sided')) return { badge: 'b-note', verdict: 'v-note', angle: 62 }
   if (label.startsWith('Crossed party')) return { badge: 'b-note', verdict: 'v-note', angle: 48 }
   if (label.startsWith('Contested vote, one-sided')) return { badge: 'b-note', verdict: 'v-note', angle: 40 }
@@ -225,20 +231,35 @@ export type LabelCounts = {
       and the page should say so rather than print a breakdown that does not
       add up to the total beside it. */
   partitions: boolean
+  /** Rows whose stored label claims one-sidedness their own figures do not
+      support — i.e. published before the current rule. Zero after a refresh. */
+  stale: number
 }
 
 export async function labelCounts(): Promise<LabelCounts> {
-  const [pairs, { count: total }] = await Promise.all([
+  /* Counted on `display_label`, not on the stored `label`.
+   *
+   * The stored label is written by the pipeline; the rule that produces it
+   * changes in a code deploy. Between the deploy and the next nightly refresh
+   * the two disagree, and the site was showing three trails badged "one-sided
+   * industry money" on the same page as a corrections entry saying none
+   * currently qualifies. `display_label` re-checks that one claim against the
+   * row's own stored figures — see civictrace.one_sided_supported — so the
+   * badge, the filter, the counts and the front-page cards cannot drift apart
+   * from each other or from what the current rule actually supports. */
+  const [pairs, { count: total }, { count: stale }] = await Promise.all([
     Promise.all(LABELS.map(async (l: string) => {
-      const { count } = await db.from('money_trail')
-        .select('label', { count: 'exact', head: true }).eq('label', l)
+      const { count } = await db.from('trail_full')
+        .select('display_label', { count: 'exact', head: true }).eq('display_label', l)
       return [l, count || 0] as const
     })),
-    db.from('money_trail').select('label', { count: 'exact', head: true }),
+    db.from('trail_full').select('display_label', { count: 'exact', head: true }),
+    db.from('trail_full').select('display_label', { count: 'exact', head: true })
+      .eq('label_stale', true),
   ])
   const counts = Object.fromEntries(pairs)
   const summed = pairs.reduce((a, [, n]) => a + n, 0)
-  return { counts, total: total || 0, partitions: summed === (total || 0) }
+  return { counts, total: total || 0, partitions: summed === (total || 0), stale: stale || 0 }
 }
 
 /* ------------------------------------------------------------------- links

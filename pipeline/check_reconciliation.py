@@ -183,6 +183,62 @@ def main():
             sum(per_label.values()) == n_trails,
             f"labels sum to {sum(per_label.values())} vs {n_trails} trails: {per_label}")
 
+    # The gate an outside review asked for after finding the site showing three
+    # trails badged "one-sided industry money" on the same day the corrections
+    # log said none qualifies.
+    #
+    # Two separate things are checked, because they can fail separately:
+    #
+    #   1. The SQL guard in trail_full (`one_sided_supported`) and the Python
+    #      engine (`trail.axis_verdict`) are two expressions of the same three
+    #      published conditions. If they ever disagree on a published row, one
+    #      of them has been edited without the other and the site is showing a
+    #      claim its own engine would not make.
+    #   2. The stored label must equal what the current engine would produce
+    #      from the same row. When it does not, the published data predates a
+    #      rule change — which is not itself a bug, but it is a state a reader
+    #      must never be shown silently. `display_label` covers the one claim it
+    #      can re-check at read time; anything beyond that has to fail the run.
+    import trail as engine
+
+    cols = ("label,sector_dollars,sector_share_pct,party_line_share_pct,minority_share_pct,"
+            "aligned_side_dollars,opposed_side_dollars,has_interest_axis,axis_name,larger_pole,"
+            "smaller_pole,unaligned_dollars,position,one_sided_supported,display_label,label_stale")
+    trs = rows_all(f"trail_full?select={cols}&cycle=eq.{cyc}")
+
+    disagree, drifted = [], []
+    for t in trs:
+        money = {
+            "sector_dollars": float(t["sector_dollars"] or 0),
+            "sector_share_pct": float(t["sector_share_pct"] or 0),
+            "aligned_side_dollars": float(t["aligned_side_dollars"] or 0),
+            "opposed_side_dollars": float(t["opposed_side_dollars"] or 0),
+            "has_interest_axis": t["has_interest_axis"],
+            "axis_name": t["axis_name"], "larger_pole": t["larger_pole"],
+            "smaller_pole": t["smaller_pole"],
+            "unaligned_dollars": float(t["unaligned_dollars"] or 0),
+        }
+        py_one_sided, _ = engine.axis_verdict(money)
+        if bool(py_one_sided) != bool(t["one_sided_supported"]):
+            disagree.append(f"{t['label']}: python {py_one_sided} vs sql {t['one_sided_supported']}")
+
+        want, _why = engine.alignment_label({
+            "money": money, "vote": {"position": t["position"]},
+            "context": {"party_line_share_pct": t["party_line_share_pct"],
+                        "minority_share_pct": float(t["minority_share_pct"] or 0)}})
+        if want != t["label"]:
+            drifted.append(f"stored {t['label']!r} vs engine {want!r}")
+
+    require("the SQL one-sidedness guard and the Python engine agree on every trail",
+            not disagree, "; ".join(sorted(set(disagree))[:3]))
+    require(f"every one of the {len(trs)} published labels is what the current engine produces",
+            not drifted,
+            f"{len(drifted)} rows predate the current rule — run the pipeline: "
+            + "; ".join(sorted(set(drifted))[:3]))
+    n_masked = sum(1 for t in trs if t["label_stale"])
+    if n_masked:
+        print(f"         {n_masked} row(s) are being shown under a corrected label at read time")
+
     # Every dimension of individual_agg must add to that member's 'all' row, or
     # a member page shows a breakdown that does not match the total above it.
     # The loader asserts this against SQLite; this asserts it against what was

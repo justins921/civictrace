@@ -379,11 +379,30 @@ def alignment_label(t):
                 f"predictable is explained by party position, not by contributions.")
 
     # Directional, and about this member: were they in their party's minority?
+    #
+    # The wording used to have two states and the second one was doing too much
+    # work. Everything from 50% to 89% got "The member voted Yea, with 57.5% of
+    # their own party" — true, but sitting under a page that also said, in
+    # fixed text, that this label means the member broke from their party. A
+    # reader landing on H.R. 1346 at 57.5% was told both things at once, and
+    # the same sentence covered H.R. 131 at 83.5%, where the member's party was
+    # not divided at all and the chamber was. Three bands, because there are
+    # three genuinely different situations and only one of them is crossing.
     crossed = party_share is not None and party_share < 50
-    minority_note = (
-        f"The member voted {position}, which put them in the minority of their own party "
-        f"({party_share}% of it voted the same way)." if crossed else
-        f"The member voted {position}, with {party_share}% of their own party.")
+    if crossed:
+        minority_note = (
+            f"The member voted {position}, which put them in the minority of their own party — "
+            f"only {party_share}% of it voted the same way.")
+    elif party_share < 75:
+        minority_note = (
+            f"The member voted {position}. Their party divided on this vote and the member was "
+            f"on the larger side of the division, not against it — {party_share}% of their party "
+            f"voted the same way.")
+    else:
+        minority_note = (
+            f"The member voted {position}, with {party_share}% of their own party — most of it. "
+            f"What was close here was the chamber, not this member's party: "
+            f"{ctx['minority_share_pct']}% of all members voting took the losing side.")
 
     # Is there a coherent industry position to overlap with at all?
     one_sided, axis_note = axis_verdict(m)
@@ -405,8 +424,8 @@ def alignment_label(t):
 
     if share >= 10 and one_sided:
         return ("Contested vote, one-sided industry money",
-                f"The bill's sector supplied {share}% of this member's PAC money, and the vote "
-                f"split the member's party. {minority_note}{axis_note}")
+                f"The bill's sector supplied {share}% of this member's PAC money. "
+                f"{minority_note}{axis_note}")
 
     return ("Contested vote, industry money present",
             f"Sector money is {share}% of this member's PAC total. {minority_note}{axis_note} "

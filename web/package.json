@@ -7,7 +7,8 @@
     "build": "npm run check:bounds && next build",
     "start": "next start",
     "check:bounds": "node scripts/check-bounds.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

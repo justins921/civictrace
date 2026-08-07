@@ -21,7 +21,7 @@ export async function generateMetadata({ params }: { params: Promise<{ key: stri
   const parts = splitKey((await params).key)
   if (!parts) return { title: 'Money trail — CivicTrace' }
   const { data: rows } = await db.from('trail_full')
-    .select('full_name,label,bill_title,vote_desc,legis_num,position,iso_date')
+    .select('full_name,display_label,bill_title,vote_desc,legis_num,position,iso_date')
     .eq('vote_key', parts.voteKey).eq('bioguide', parts.bioguide).eq('cycle', CYCLE).limit(1)
   const t = (rows || [])[0]
   if (!t) return { title: 'Money trail — CivicTrace' }
@@ -29,7 +29,8 @@ export async function generateMetadata({ params }: { params: Promise<{ key: stri
   const title = `${t.full_name} on ${t.legis_num} — CivicTrace`
   const description =
     `${t.full_name} voted ${t.position} on ${t.legis_num}${t.iso_date ? ` (${t.iso_date})` : ''}: `
-    + `${subject}. Classified "${t.label}". Overlap between filed contributions and a recorded `
+    + `${subject}. Classified "${t.display_label}". Overlap between filed contributions and a `
+    + `recorded `
     + `vote — not an allegation of anything.`
   const url = `${SITE_URL}/trail/${encodeURIComponent(parts.voteKey)}--${parts.bioguide}`
   return { title, description, alternates: { canonical: url },

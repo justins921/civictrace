@@ -66,8 +66,19 @@ export default async function Committee({ params }: { params: Promise<{ id: stri
     // Every individual payment this committee made to a Wisconsin member. The
     // busiest committee in the file is well under a page, but a leadership PAC
     // in a wave cycle is exactly the case that would quietly cross it.
+    // `fetchAll` must order by a real column — paging by .range() over an
+    // unordered result set returns rows in whatever order Postgres feels like
+    // and can repeat or skip them between pages. The first version of this
+    // ordered by `iso_dt`, which does not exist on this view: the individual
+    // payment dates live inside the `payments` jsonb array, and the view's own
+    // date columns are `first_date` and `last_date`. PostgREST rejected the
+    // sort, fetchAll threw rather than silently returning nothing, and every
+    // committee page 500'd. The throw is the correct behaviour and it is what
+    // made this findable — the bug is that I shipped it without loading a
+    // single committee page. `bioguide` exists, is unique per row here, and
+    // the display order is set below anyway.
     fetchAll<any>('committee_payments',
-      (q: any) => q.eq('filer_cmte_id', id).eq('cycle', CYCLE).order('iso_dt')),
+      (q: any) => q.eq('filer_cmte_id', id).eq('cycle', CYCLE).order('bioguide')),
     // Filtered in the database, not here. This used to pull the top 300 trails
     // by rank and search them in JS for this committee. At 591 trails that was
     // merely lossy; at 1,032 it left 24 of 167 committees rendering no trails
@@ -254,7 +265,7 @@ export default async function Committee({ params }: { params: Promise<{ id: stri
             {trails.map((t: any) => (
               <Link key={t.vote_key + t.bioguide} href={trailHref(t)} className="card"
                 style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>
-                <span className={`badge ${labelClass(t.label).badge}`}>{t.label}</span>
+                <span className={`badge ${labelClass(t.display_label ?? t.label).badge}`}>{t.display_label ?? t.label}</span>
                 <h3 className="clamp3" style={{ marginTop: 10, fontSize: 15.5 }}
                   title={t.bill_title || t.vote_desc}>{t.bill_title || t.vote_desc}</h3>
                 <div className="small">

@@ -449,7 +449,7 @@ export default async function Member({ params }: { params: Promise<{ slug: strin
         {(trails || []).map((t: any) => (
           <Link key={t.vote_key} href={trailHref(t)} className="card"
             style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>
-            <span className={`badge ${labelClass(t.label).badge}`}>{t.label}</span>
+            <span className={`badge ${labelClass(t.display_label ?? t.label).badge}`}>{t.display_label ?? t.label}</span>
             <h3 className="clamp3" style={{ marginTop: 10, fontSize: 15.5 }}
               title={t.bill_title || t.vote_desc}>{t.bill_title || t.vote_desc}</h3>
             <div className="small">

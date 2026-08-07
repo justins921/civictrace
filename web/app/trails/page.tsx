@@ -26,7 +26,7 @@ export default async function Trails({ searchParams }:
   // stable across pages — an unstable sort silently drops and repeats rows when
   // you page through it.
   let qy = db.from('trail_full').select('*', { count: 'exact' }).eq('cycle', CYCLE).order('rank')
-  if (sp.label) qy = qy.eq('label', sp.label)
+  if (sp.label) qy = qy.eq('display_label', sp.label)
   if (sp.member) qy = qy.eq('slug', sp.member)
   qy = qy.range((page - 1) * PER_PAGE, page * PER_PAGE - 1)
 
@@ -151,8 +151,8 @@ export default async function Trails({ searchParams }:
           <Link key={t.vote_key + t.bioguide} href={trailHref(t)} className="card"
             style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'start' }}>
-              <span className={`badge ${labelClass(t.label).badge}`}>{t.label}</span>
-              <Gauge angle={labelClass(t.label).angle} size={62} />
+              <span className={`badge ${labelClass(t.display_label ?? t.label).badge}`}>{t.display_label ?? t.label}</span>
+              <Gauge angle={labelClass(t.display_label ?? t.label).angle} size={62} />
             </div>
             <h3 className="clamp3" style={{ marginTop: 8, fontSize: 15.5 }}
               title={t.bill_title || t.vote_desc}>{t.bill_title || t.vote_desc}</h3>
