@@ -123,7 +123,16 @@ def main():
                     sm = b.find("summaries/summary")
                     subs = sorted({s.findtext("name") for s in b.iter("legislativeSubject")
                                    if s.findtext("name")})
-                    c.execute("INSERT OR REPLACE INTO bill VALUES (%s)" % ",".join("?" * 18), (
+                    # Columns named, not positional. `INSERT INTO bill VALUES
+                    # (?,?,...)` against a table another file creates is a bug
+                    # generator: add a column over there and this breaks at
+                    # runtime, on a clean build, with a message about counts.
+                    c.execute("""INSERT OR REPLACE INTO bill
+                      (bill_key, congress, bill_type, bill_num, title, policy_area,
+                       subjects, sponsor_name, sponsor_bioguide, sponsor_party,
+                       sponsor_state, intro_date, latest_action, latest_action_date,
+                       summary, source_url, congressgov_url, is_broad)
+                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                         key, CONGRESS, bt, num, b.findtext("title"), b.findtext("policyArea/name"),
                         "; ".join(subs),
                         sp.findtext("fullName") if sp is not None else None,
@@ -143,7 +152,10 @@ def main():
                     added += 1
 
                 for el, role, orig, withdrawn in mine:
-                    c.execute("INSERT OR REPLACE INTO bill_sponsor VALUES (?,?,?,?,?,?,?,?,?)", (
+                    c.execute("""INSERT OR REPLACE INTO bill_sponsor
+                      (bill_key, bioguide, role, sponsored_date, is_original,
+                       withdrawn_date, full_name, party, state)
+                      VALUES (?,?,?,?,?,?,?,?,?)""", (
                         key, (el.findtext("bioguideId") or "").strip(), role,
                         el.findtext("sponsorshipDate") or b.findtext("introducedDate"),
                         orig, withdrawn,

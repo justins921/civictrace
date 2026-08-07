@@ -89,6 +89,14 @@ jobs:
           restore-keys: ct-state-
 
       - run: pip install -r requirements.txt
+      # Before anything is fetched or published. Both of these run in about a
+      # second, need no network and no credentials, and each exists because a
+      # scheduled refresh died on something they now catch: the engine's own
+      # label rules, and the schema as a *clean* build sees it. CI has always
+      # started from an empty database; developer machines never do, and that
+      # gap has broken production twice.
+      - run: python test_schema.py
+      - run: python test_alignment.py
       - run: python daily_update.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

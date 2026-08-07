@@ -14,7 +14,16 @@ CREATE TABLE bill (
   bill_key TEXT PRIMARY KEY, congress INTEGER, bill_type TEXT, bill_num TEXT,
   title TEXT, policy_area TEXT, subjects TEXT, sponsor_name TEXT, sponsor_bioguide TEXT,
   sponsor_party TEXT, sponsor_state TEXT, intro_date TEXT, latest_action TEXT,
-  latest_action_date TEXT, summary TEXT, source_url TEXT, congressgov_url TEXT
+  latest_action_date TEXT, summary TEXT, source_url TEXT, congressgov_url TEXT,
+  -- Set by load_earmarks.py, which decides what counts as an omnibus. It is
+  -- declared here, where the table is created, because it is a column of this
+  -- table. It used to be bolted on by an ALTER further down the pipeline, and
+  -- fetch_member_bills.py — which runs before that — inserted a value for it.
+  -- That worked on every developer machine, where the database persists between
+  -- runs and already had the column, and failed on every clean build. CI has
+  -- run against a fresh database since day one; this is why the 7 August
+  -- refresh died.
+  is_broad INTEGER DEFAULT 0
 );
 
 -- Sponsorship and cosponsorship, which this script downloaded and discarded for
