@@ -195,7 +195,11 @@ def house(year, lo=1, hi=None):
         def t(tag):
             try: return int(txt(totals, tag, "0") or 0)
             except Exception: return 0
-        c.execute("INSERT OR REPLACE INTO rollcall VALUES (%s)" % ",".join("?" * 17), (
+        c.execute("""INSERT OR REPLACE INTO rollcall
+          (vote_key, chamber, congress, session, year, rollnum, legis_num,
+           vote_question, vote_desc, vote_result, action_date, iso_date,
+           yea, nay, present, notvoting, source_url)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             key, "House", int(txt(md, "congress", "0") or 0), txt(md, "session"), year, r,
             txt(md, "legis-num"), txt(md, "vote-question"), txt(md, "vote-desc"),
             txt(md, "vote-result"), txt(md, "action-date"), iso_house(txt(md, "action-date")),
@@ -232,7 +236,11 @@ def senate(congress, session):
         def sc(tag):
             try: return int(txt(cnt, tag, "0") or 0)
             except Exception: return 0
-        c.execute("INSERT OR REPLACE INTO rollcall VALUES (%s)" % ",".join("?" * 17), (
+        c.execute("""INSERT OR REPLACE INTO rollcall
+          (vote_key, chamber, congress, session, year, rollnum, legis_num,
+           vote_question, vote_desc, vote_result, action_date, iso_date,
+           yea, nay, present, notvoting, source_url)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             key, "Senate", congress, str(session), int(txt(vr, "congress_year", "0") or 0), int(num),
             txt(vr, "document/document_name") or txt(vr, "amendment/amendment_number"),
             txt(vr, "question"), txt(vr, "vote_question_text") or txt(vr, "vote_title"),

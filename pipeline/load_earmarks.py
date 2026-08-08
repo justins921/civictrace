@@ -8,6 +8,7 @@ inferred data, it is the members' own filings. CivicTrace's job is to make them
 countable and comparable, not to call any of them wasteful. Whether a $2M
 airport runway is pork or infrastructure is a judgement the reader makes.
 """
+import collections
 import re, sqlite3, unicodedata, openpyxl
 from pathlib import Path
 
@@ -41,18 +42,57 @@ def fold(s):
     return re.sub(r"[^A-Za-z]", "", s).upper()
 
 
-# name -> bioguide, built from the roster we already loaded
-roster = {}
+# name -> bioguide, built from the roster we already loaded.
+#
+# Every key here is built only where it identifies exactly one member. The
+# previous version asserted that surname+state is "unique in all but a handful
+# of states", used it as a fallback, and was wrong: the FY2026 file lists
+# 15 requests worth $36,024,633 for David Scott of Georgia's 13th, who is no
+# longer in the current roster. Austin Scott of Georgia's 8th is. Both specific
+# keys missed, (SCOTT, GA) hit, and $36M landed under the wrong man's name —
+# the same failure as V000133, and the comment three lines above it said in
+# terms that a wrong attribution is worse than none.
+#
+# So ambiguity is measured rather than assumed. Collect every candidate for
+# every key, then keep only the keys with one candidate. (SCOTT, GA) now has
+# two and is simply not a key, so David Scott comes back unattributed, which is
+# the truth.
+#
+# The name variants exist because the appropriations file records names as
+# members use them and the roster records them as registered. "Marie Perez" is
+# Marie Gluesenkamp Perez; "Marjorie Greene" is Marjorie Taylor Greene. fold()
+# strips spaces, so the old `ff.split()[0]` was dead code — there is never a
+# space left to split on — and 26 requests for members who *are* in the roster
+# went unattributed for want of it.
+def variants(name):
+    """Folded whole name, plus each token and hyphen-part of it."""
+    raw = str(name or "")
+    out = {fold(raw)}
+    for tok in re.split(r"[\s\-]+", raw):
+        if len(tok) > 1:
+            out.add(fold(tok))
+    return {v for v in out if v}
+
+
+# There is deliberately no (surname, state) key.
+#
+# Uniqueness within the roster cannot save it, which is the part that took a
+# second attempt to see: David Scott is not in the roster at all, so (SCOTT, GA)
+# has exactly one candidate — Austin Scott — and looks perfectly unambiguous
+# right up until it hands one man's $36M to another. A key has to be specific
+# enough that a member we do not hold *misses* it. Surname plus district, or
+# surname plus first name plus state, both are. Surname plus state is not.
+candidates = collections.defaultdict(set)
 for b, last, first, st, dist in c.execute(
         "SELECT bioguide, last, first, state, district FROM member WHERE chamber='rep'"):
-    lf, ff = fold(last), fold(first)
-    roster[(lf, st, str(dist))] = b
-    roster.setdefault((lf, ff), b)
-    roster.setdefault((lf, st), b)          # unique in all but a handful of states
-    # First names are filed as they are used, not as they are registered, so
-    # index the first token of each too: "Marjorie Taylor" also answers to
-    # "Marjorie", "Jesus" to "Jesús" once folded.
-    roster.setdefault((lf, ff.split()[0] if ff else ff), b)
+    for lv in variants(last):
+        candidates[(lv, st, str(dist))].add(b)
+        for fv in variants(first):
+            candidates[(lv, fv, st)].add(b)
+
+roster = {k: next(iter(v)) for k, v in candidates.items() if len(v) == 1}
+ambiguous = sum(1 for v in candidates.values() if len(v) > 1)
+print(f"roster: {len(roster)} unambiguous keys, {ambiguous} dropped as ambiguous")
 
 wb = openpyxl.load_workbook(BASE / "data" / "cpf_fy26.xlsx", read_only=True)
 ws = wb[wb.sheetnames[0]]
@@ -66,13 +106,19 @@ for r in rows:
     m = re.match(r"^([A-Z]{2})(\d+|AL)$", dist)
     st, dnum = (m.group(1), m.group(2)) if m else (None, None)
     if dnum and dnum != "AL": dnum = str(int(dnum))
-    lf, ff = fold(last), fold(first)
-    # Most specific first: surname + state + district is unambiguous. Surname +
-    # first name next. Surname + state last, because two members of the same
-    # state can share a surname and a wrong attribution is worse than none.
-    bio = (roster.get((lf, st, dnum))
-           or roster.get((lf, ff))
-           or roster.get((lf, st)))
+    # Most specific first. Every key that survives is unique by construction,
+    # so a miss is a member we do not hold rather than a coin flip.
+    bio = None
+    for lv in variants(last):
+        bio = roster.get((lv, st, dnum))
+        if bio:
+            break
+        for fv in variants(first):
+            bio = roster.get((lv, fv, st))
+            if bio:
+                break
+        if bio:
+            break
     if isinstance(url, str):
         u = re.search(r'"(https?://[^"]+)"', url)
         url = u.group(1) if u else url

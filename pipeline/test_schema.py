@@ -85,7 +85,7 @@ def main():
             for t in re.findall(r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+(\w+)", block, re.I):
                 creator.setdefault(t, p.name)
 
-    cross_file, wrong_arity = [], []
+    cross_file, wrong_arity, undetermined = [], [], []
     for p in sources():
         text = p.read_text()
         for m in re.finditer(
@@ -99,15 +99,32 @@ def main():
             if owner and owner != p.name:
                 cross_file.append(f"{p.name} -> {table} (created in {owner})")
 
-            # Arity, where it is written literally or as `"?" * N`.
+            # Arity, written literally as (?,?,?) or built as `"?" * N`.
+            #
+            # The first version of this searched a window ending at m.end() —
+            # the closing paren of `VALUES (%s)`. The `",".join("?" * 17)` that
+            # actually supplies the arity sits *after* that point, so the regex
+            # never matched, `n` stayed None, and the check was skipped. Every
+            # insert that has ever broken this pipeline uses the `%s` form; the
+            # only shape the checker evaluated was the literal one, which has
+            # never failed once. A checker that silently passes what it cannot
+            # parse is worse than no checker, so an undetermined arity on a
+            # positional insert is now a failure in its own right.
             n = None
             if set(args.replace(" ", "")) <= {"?", ","} and "?" in args:
                 n = args.count("?")
             else:
-                mult = re.search(r'"\?"\s*\*\s*(\d+)', text[max(0, m.start() - 120):m.end()])
+                tail = text[m.start():m.end() + 200]
+                mult = re.search(r'"\?"\s*\*\s*(\d+)', tail)
                 if mult:
                     n = int(mult.group(1))
-            if n is not None and table in ncols and n != ncols[table]:
+                elif re.search(r'"\?"\s*\*\s*len\(', tail):
+                    n = -1        # arity from a runtime length; not checkable, not a bug
+            if n == -1:
+                pass
+            elif n is None:
+                undetermined.append(f"{p.name}: INSERT INTO {table} — arity not determinable")
+            elif table in ncols and n != ncols[table]:
                 wrong_arity.append(f"{p.name}: {table} takes {ncols[table]} columns, given {n}")
 
     print("== positional INSERTs across file boundaries")
@@ -117,6 +134,8 @@ def main():
     print("\n== positional INSERT arity against the clean-build schema")
     check("every positional INSERT matches its table's column count",
           not wrong_arity, "; ".join(sorted(set(wrong_arity))))
+    check("every positional INSERT has an arity this check can read",
+          not undetermined, "; ".join(sorted(set(undetermined))))
 
     print("\n== tables the export publishes exist on a clean build")
     export = (HERE / "export_json.py").read_text()

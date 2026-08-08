@@ -35,6 +35,28 @@ PAGE = 1000
 
 
 def q(path, headers=None, want_range=False):
+    """Every read here must state its own bound.
+
+    This helper was unbounded, and the discipline lived in three wrappers and a
+    comment. That is the same arrangement the web app had for seven instances of
+    the same defect across four reviews, and it is the arrangement this file
+    exists to catch elsewhere. `individual_agg` is already 2.25x PostgREST's
+    ceiling; if one of the callers below ever regresses from rows_all() to a
+    bare q(), the per-member reconciliation would run on 1,000 of 2,245 rows and
+    still pass, because the loop skips any member whose row fell past the cut.
+
+    So: a caller supplies Range, or asks for a count, or passes an explicit
+    limit in the query string. Anything else raises here rather than returning
+    a truncation nobody notices.
+    """
+    hdrs = headers or {}
+    bounded = ("Range" in hdrs or "count" in hdrs.get("Prefer", "")
+               or "limit=" in path or "&single" in path)
+    if not bounded:
+        raise RuntimeError(
+            f"unbounded read: {path}\n"
+            f"PostgREST caps this at {PAGE} rows and says nothing. Use rows_all(), "
+            f"count_of(), sum_all(), or pass an explicit Range.")
     req = urllib.request.Request(
         f"{URL}/rest/v1/{path}",
         headers={"apikey": KEY, "Authorization": f"Bearer {KEY}",
@@ -110,7 +132,15 @@ def require(name, ok, detail=""):
 
 
 def main():
-    r = q("reconciliation?select=*")[0]
+    # `[0]` of an unordered, unbounded read. One row today; the moment a second
+    # cycle is backfilled this picks the published cycle arbitrarily, and every
+    # invariant below it is then asserted about whichever row came back first.
+    recon = q(f"reconciliation?select=*&limit=2", {"Range": "0-1"}, want_range=True)[0]
+    if len(recon) != 1:
+        raise RuntimeError(
+            f"reconciliation returned {len(recon)} rows; it must identify exactly one "
+            f"published cycle, and every check below assumes it does")
+    r = recon[0]
     cyc = r["cycle"]
     print(f"CivicTrace aggregation invariants — published cycle {cyc}\n")
 
@@ -263,6 +293,15 @@ def main():
     # is not checked for completeness — but a coverage row that claims more
     # bill-naming activities than activities is arithmetic, not incompleteness.
     cov = rows_all("lobbying_coverage?select=*")
+    n_lobby = count_of("lobbying_bill?select=bill_key")
+    # An assertion over an empty table passes having checked nothing — the same
+    # shape as the `isinstance(other, list)` check this file's own comment calls
+    # out. If bill-level lobbying is published, its coverage must be published
+    # too, or the caveat on every bill page is describing a measurement that
+    # does not exist.
+    require("lobbying coverage exists whenever lobbying does",
+            bool(cov) or n_lobby == 0,
+            f"{n_lobby} lobbying_bill rows published with no lobbying_coverage row")
     bad_cov = [f"{c['year']}: {c['activities_citing_bill']} of {c['activities']}"
                for c in cov if (c["activities"] or 0) < (c["activities_citing_bill"] or 0)]
     require("lobbying coverage is arithmetically possible", not bad_cov, "; ".join(bad_cov))

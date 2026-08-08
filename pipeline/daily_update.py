@@ -182,9 +182,32 @@ def run(step, *argv, env=None):
 # with the empty export it would otherwise produce.
 BUDGET = float(os.environ.get("CT_BUDGET_MINUTES", "42")) * 60
 RESERVE = float(os.environ.get("CT_PUBLISH_RESERVE_MINUTES", "12")) * 60
+
+# Per-run state, reset by main(). These were module globals, initialised at
+# import — which is correct exactly once, in the GitHub Actions path, where the
+# process exists to run one refresh and then dies.
+#
+# serve.py imports this module at container start and calls main() in-process.
+# So `STARTED` was the moment the container booted, and after thirty minutes of
+# uptime `remaining() < RESERVE` on every subsequent refresh, permanently. The
+# budget logic — written to protect the publish — silently skipped committee
+# assignments, independent expenditures, candidate totals, individual
+# contributions and lobbying on every run, forever. `SKIPPED_TABLES` was worse:
+# a module-level set, never cleared, so once any refresh skipped a loader that
+# table was dropped from `load_plan()` for the life of the process.
+#
+# Corroborated in the run log: individual_agg, lobbying_issue, lobbying_bill,
+# lobbying_coverage and ie_agg appear in zero of 24 recorded runs' counts.
 STARTED = time.time()
 SKIPPED_TABLES = set()
 SKIPPED_STEPS = []
+
+
+def reset_run_state():
+    global STARTED, SKIPPED_TABLES, SKIPPED_STEPS
+    STARTED = time.time()
+    SKIPPED_TABLES = set()
+    SKIPPED_STEPS = []
 
 
 def remaining():
@@ -302,9 +325,17 @@ def guard_against_shrink(before, rows_by_table, tolerance=0.05):
         if not reason.strip():
             raise RuntimeError("CT_ALLOW_SHRINK must be 'table[,table]: why', with a reason")
 
+    # The four upsert tables (replace=False) accumulate: the live count is
+    # cumulative across every run, the export is one run's snapshot. `bill` is
+    # 2,419 live against a 209-row export of voted bills, so comparing them
+    # would fire "refresh lost records" on a table that cannot lose records —
+    # and for those four this guard could never detect real loss anyway.
+    upsert_only = {t for _, t, _, rep in LOAD if not rep}
     shrunk, waived = [], []
     for table, n_new in rows_by_table.items():
         n_old = before.get(table, 0)
+        if table in upsert_only:
+            continue
         if table in PARTIAL:
             if n_old and n_new == 0:
                 shrunk.append(f"{table}: {n_old} published, refresh produced nothing at all")
@@ -424,6 +455,17 @@ def publish():
                     r.update(t)
             if missing:
                 raise RuntimeError(f"{missing} trails have no timing provenance — refusing to publish")
+        if replace and not rows:
+            # The batch loop never runs on an empty export, so `p_replace` is
+            # never sent, yesterday's rows stay live, and `counts[table] = 0` is
+            # logged as though the table had been replaced with nothing. Either
+            # outcome may be right — but silently doing one and reporting the
+            # other is not, and a loader that ran and produced nothing is
+            # exactly the failure worth stopping on.
+            raise RuntimeError(
+                f"{table}: the export is empty and this table is published with replace. "
+                f"Refusing to guess between 'the loader failed' and 'there is genuinely "
+                f"nothing'. If the latter, add it to CT_ALLOW_SHRINK with a reason.")
         total = 0
         for i in range(0, len(rows), batch):
             total += rpc("ingest", {"p_token": TOKEN, "p_table": table,
@@ -440,6 +482,9 @@ def main():
     if not (KEY and TOKEN):
         print("SUPABASE_ANON_KEY and CT_INGEST_TOKEN must be set", file=sys.stderr)
         return 2
+    # Every refresh starts its own clock and its own skip list. In the
+    # long-lived server path this function is called many times in one process.
+    reset_run_state()
     run_id = rpc("run_start", {"p_token": TOKEN, "p_source": SOURCE})
     log(f"run {run_id} started")
     t0 = time.time()
@@ -485,6 +530,7 @@ def main():
         # exported. These used to exist and run nowhere, which is the same as
         # not existing: the labeller was rewritten twice with the tests passing
         # on a machine nobody ran them on.
+        run("schema on a clean build", "test_schema.py")
         run("engine tests", "test_alignment.py")
         run("export", "export_json.py")
         run("timing provenance", "timing.py")

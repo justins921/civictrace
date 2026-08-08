@@ -250,12 +250,18 @@ export async function labelCounts(): Promise<LabelCounts> {
   const [pairs, { count: total }, { count: stale }] = await Promise.all([
     Promise.all(LABELS.map(async (l: string) => {
       const { count } = await db.from('trail_full')
-        .select('display_label', { count: 'exact', head: true }).eq('display_label', l)
+        .select('display_label', { count: 'exact', head: true })
+        .eq('cycle', CYCLE).eq('display_label', l)
       return [l, count || 0] as const
     })),
-    db.from('trail_full').select('display_label', { count: 'exact', head: true }),
+    // Filtered to the published cycle, like every row list these counts sit
+    // beside. Identical today because only 2026 is published — and it would
+    // absorb 2024 silently the day an earlier cycle is backfilled, which is
+    // exactly the cross-cycle bug this project was rebuilt to remove.
     db.from('trail_full').select('display_label', { count: 'exact', head: true })
-      .eq('label_stale', true),
+      .eq('cycle', CYCLE),
+    db.from('trail_full').select('display_label', { count: 'exact', head: true })
+      .eq('cycle', CYCLE).eq('label_stale', true),
   ])
   const counts = Object.fromEntries(pairs)
   const summed = pairs.reduce((a, [, n]) => a + n, 0)

@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { db, money, partyLetter, officeLine, hrefFor, CYCLE, CYCLE_LABEL } from '@/lib/db'
+import { db, money, partyLetter, officeLine, hrefFor, fetchAll, CYCLE, CYCLE_LABEL } from '@/lib/db'
 
 export const metadata = {
   title: "Wisconsin's federal delegation — CivicTrace",
@@ -10,16 +10,24 @@ export const metadata = {
 export const revalidate = 3600
 
 export default async function Delegation() {
-  const [{ data: members }, { data: sectors }] = await Promise.all([
+  const [{ data: members }, sectors] = await Promise.all([
     // bounds-ok: Wisconsin's delegation is ten members, and member_sector_money
     // is one row per member per sector — ten times a ~25-name vocabulary.
     db.from('member').select('*').order('chamber', { ascending: false })
       .order('district').limit(50),
-    db.from('member_sector_money').select('*').eq('cycle', CYCLE).limit(2000),
+    // `.limit(2000)` here was `.limit(1000)` wearing a comment that said
+    // otherwise: PostgREST enforces its own 1,000-row ceiling and returns
+    // exactly that, HTTP 200, no warning. Every member's PAC total on this page
+    // is summed from these rows. 129 today, so it was harmless — and it was the
+    // precise defect the bounds check exists to prevent, sitting inside the
+    // bounds check's own approval. The check now rejects any limit above the
+    // ceiling; this pages instead.
+    fetchAll<any>('member_sector_money',
+      (q: any) => q.eq('cycle', CYCLE).order('bioguide')),
   ])
 
   const byBio: Record<string, any[]> = {}
-  for (const s of sectors || []) (byBio[s.bioguide] ||= []).push(s)
+  for (const s of sectors) (byBio[s.bioguide] ||= []).push(s)
   for (const k in byBio) byBio[k].sort((a, b) => Number(b.total) - Number(a.total))
 
   return (

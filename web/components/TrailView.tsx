@@ -88,8 +88,27 @@ function SourceCard({ n, kind, who, value, meta, href, label }: {
 export function TrailView({ t }: { t: Trail }) {
   const lc = labelClass(t.display_label ?? t.label)
   const partyShare = t.party_line_share_pct
-  const largerPole = t.larger_pole_dollars ?? t.aligned_side_dollars
-  const smallerPole = t.smaller_pole_dollars ?? t.opposed_side_dollars
+  const largerPole = Number(t.larger_pole_dollars ?? t.aligned_side_dollars ?? 0)
+  const smallerPole = Number(t.smaller_pole_dollars ?? t.opposed_side_dollars ?? 0)
+
+  /* Three states, not two.
+   *
+   * `has_interest_axis` is boolean | null, and a truthiness test collapses
+   * "we have not recorded this" into "we recorded it and the answer is no" —
+   * the same two-zeroes-read-as-a-landslide shape we just spent a release
+   * removing from the labeller, one field over.
+   *
+   * And the caption has to be derived from the same facts as the number beside
+   * it. Fifteen trail pages printed "$7,000" under a sentence instructing the
+   * reader to read it as a zero, because the figure came from one column and
+   * the sentence from another with nothing asserting they agree. Money on a
+   * pole *is* proof the axis was computed, whatever the flag says, so the
+   * number decides and the flag only supplies the axis's name. */
+  const poleMoney = largerPole > 0 || smallerPole > 0
+  const axisState: 'split' | 'none' | 'unrecorded' =
+    poleMoney || t.has_interest_axis === true ? 'split'
+    : t.has_interest_axis === false ? 'none'
+    : 'unrecorded'
   const top = t.top_pacs?.[0]
   const days = t.days_since_last_sector_contribution
   const sectorNames = (t.sectors || []).map(s => s.sector).join(', ')
@@ -250,15 +269,21 @@ export function TrailView({ t }: { t: Trail }) {
             </div>
             <div className="kpi" style={{ fontSize: 26, marginTop: 4 }}>{money(smallerPole)}</div>
             <div className="small">
-              {t.has_interest_axis ? (
-                <>came from committees on the <strong>{t.smaller_pole || 'opposing'}</strong> pole
+              {axisState === 'split' ? (
+                <>came from committees on the <strong>{t.smaller_pole || 'smaller'}</strong> pole
                 of this industry, against <strong>{money(largerPole)}</strong> from{' '}
-                <strong>{t.larger_pole}</strong>
+                <strong>{t.larger_pole || 'the larger side'}</strong>
                 {t.axis_name ? <> — the {t.axis_name} axis</> : null}. That is our classification of
                 each committee, not a statement about this bill.</>
-              ) : (
+              ) : axisState === 'none' ? (
                 <>This industry has no two-sided axis in our classifier, so we cannot tell you what
                 another side gave. Read this zero as <strong>missing</strong>, not as checked.</>
+              ) : (
+                <>We have not recorded whether this industry has a two-sided axis for this trail —
+                the field is computed by the pipeline and this row predates it. Read this as{' '}
+                <strong>not yet checked</strong>, which is different from checked and none found,
+                and different again from an industry with no axis. It fills in on the next
+                refresh.</>
               )}
             </div>
             {/* The share of the industry's money the poles actually account
@@ -267,7 +292,7 @@ export function TrailView({ t }: { t: Trail }) {
                 which was the case on all three of the trails this site ranked
                 highest, and is why the labeller no longer calls that
                 one-sided. */}
-            {t.has_interest_axis && Number(t.unaligned_dollars) > 0 && (
+            {axisState === 'split' && Number(t.unaligned_dollars) > 0 && (
               <div className="small" style={{ marginTop: 6 }}>
                 A further <strong>{money(t.unaligned_dollars)}</strong> — {Math.round(
                   (100 * Number(t.unaligned_dollars)) / Math.max(1, Number(t.sector_dollars)))}%
@@ -276,7 +301,7 @@ export function TrailView({ t }: { t: Trail }) {
               </div>
             )}
             <div className="tiny" style={{ marginTop: 8 }}>
-              {t.has_interest_axis
+              {axisState === 'split'
                 ? 'Shown beside the industry total by design. A trail that shows only one side of an industry is an argument, not a record. Three industries currently carry a declared axis — energy, health care and guns — and the others say so here rather than printing a zero that looks like a finding.'
                 : 'Not every industry has two organised sides lobbying against each other, and we do not invent one to fill this box. Where an axis exists it is published on the methodology page with the committee list for each pole.'}
             </div>

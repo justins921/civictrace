@@ -33,7 +33,8 @@ async function pick(path) {
 
 const paths = [
   '/', '/trails', '/donors', '/bills', '/industries', '/delegation', '/votes',
-  '/methodology', '/corrections', '/contact', '/search', '/robots.txt', '/sitemap.xml',
+  '/earmarks', '/methodology', '/corrections', '/contact', '/search',
+  '/robots.txt', '/sitemap.xml',
   // query-string variants — these render dynamically and take different branches
   '/trails?label=' + encodeURIComponent('Party-line vote — low signal'),
   '/trails?p=2',
@@ -43,6 +44,10 @@ const paths = [
   '/search?q=northwestern',
   '/search?q=%25',                    // a bare ilike wildcard
   '/search?q=zzzzzznothing',           // no results
+  // Branches fixed in earlier rounds that nothing was loading afterwards.
+  '/donors?sector=finance-insurance&side=insurance',
+  '/trails?label=' + encodeURIComponent('Crossed party, one-sided industry money'),
+  '/donors?p=999',
   '/bill/does-not-exist',              // expected 404, checked separately
 ]
 

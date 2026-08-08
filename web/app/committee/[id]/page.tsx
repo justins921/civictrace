@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { db, money, partyLetter, officeLine, labelClass, trailHref, hrefFor, fetchAll, CYCLE, CYCLE_LABEL, SITE_URL } from '@/lib/db'
+import { db, money, partyLetter, officeLine, labelClass, trailHref, hrefFor, fetchAll, safeUrl, CYCLE, CYCLE_LABEL, SITE_URL } from '@/lib/db'
 import { DonorArt } from '@/components/Art'
 
 export const revalidate = 3600
@@ -131,7 +131,7 @@ export default async function Committee({ params }: { params: Promise<{ id: stri
             {c.rule_id && <span className="pill">classified by rule {c.rule_id}</span>}
           </div>
           <div style={{ marginTop: 12 }}>
-            <a className="btn" href={c.fec_url} target="_blank" rel="noopener noreferrer">
+            <a className="btn" href={safeUrl(c.fec_url) || '#'} target="_blank" rel="noopener noreferrer">
               FEC committee record ↗</a>
           </div>
         </div>

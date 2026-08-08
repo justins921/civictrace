@@ -37,10 +37,27 @@ export default async function Sector({ params }: { params: Promise<{ slug: strin
   if (!prof) notFound()
   const sector = prof.sector
 
-  const [{ data: cmtes }, { data: recips }, bills, { data: trailsRaw, count: trailCount, error: trailErr }] = await Promise.all([
+  const [{ data: cmtes }, allCmtes, { data: recips }, bills,
+         { data: trailsRaw, count: trailCount, error: trailErr }] = await Promise.all([
+    // The 40 shown in the table.
     db.from('committee_profile').select('*').eq('sector', sector).eq('cycle', CYCLE)
       .gt('payments_to_wi', 0)
       .order('total_to_wi', { ascending: false }).order('cmte_id', { ascending: true }).limit(40),
+    /* Every committee in the sector, for the interest-side split below.
+       That split used to be summed over the 40-row display slice and printed
+       as the sector's own breakdown: Finance & Insurance rendered $794,000
+       against a header of $872,000, and Trade / Membership was short by 53%.
+       The note nine lines down already says the member list must never be
+       derived from the capped committee list — the fix was applied to the
+       members table and not to the side table beside it.
+
+       It passes `check:bounds` either way, because `.limit(40)` *is* a bound.
+       The check verifies the fetch is bounded; it cannot know the arithmetic
+       is over the wrong set. `/industries` computes this same quantity from
+       the full set and has always disagreed with this page. */
+    fetchAll<any>('committee_profile',
+      (q: any) => q.eq('sector', sector).eq('cycle', CYCLE).gt('payments_to_wi', 0)
+        .order('cmte_id'), { columns: 'interest_side,total_to_wi' }),
     // bounds-ok: at most one row per Wisconsin member.
     db.from('sector_members').select('*').eq('sector_slug', slug).eq('cycle', CYCLE)
       .order('total', { ascending: false }).order('bioguide', { ascending: true }).limit(100),
@@ -68,11 +85,14 @@ export default async function Sector({ params }: { params: Promise<{ slug: strin
   const trailTotal = trailCount || 0
 
   const sides: Record<string, number> = {}
-  for (const c of cmtes || []) {
+  for (const c of allCmtes) {
     const k = c.interest_side || 'unspecified'
     sides[k] = (sides[k] || 0) + Number(c.total_to_wi)
   }
   const sideRows = Object.entries(sides).sort((a, b) => b[1] - a[1])
+  // These are a breakdown of the header figure, so they have to add to it.
+  const sideSum = sideRows.reduce((a, [, v]) => a + v, 0)
+  const sidesReconcile = Math.abs(sideSum - Number(prof.total_to_wi)) < 0.5
 
   return (
     <div className="wrap">
@@ -123,6 +143,14 @@ export default async function Sector({ params }: { params: Promise<{ slug: strin
                 ))}
               </tbody>
             </table>
+            <div className="tiny card-foot">
+              {sidesReconcile
+                ? `Every committee in this industry, not only the ones listed below — these add
+                   to ${money(sideSum)}, the industry total above.`
+                : `These add to ${money(sideSum)}, and the industry total above is
+                   ${money(prof.total_to_wi)}. They should match; that they do not is a bug, and
+                   we would rather show you the discrepancy than the smaller number on its own.`}
+            </div>
           </div>
         </>
       )}

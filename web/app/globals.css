@@ -1,6 +1,6 @@
 :root{
   --page:#eef2f7; --card:#ffffff; --line:#dde5ef; --line2:#eaeff6;
-  --ink:#16222f; --dim:#5f7183;
+  --ink:#16222f; --dim:#5c6e80;
   /* M20: --faint was #8698a9 — 2.97:1 on white, against WCAG AA's 4.5:1, and it
      is the colour of every table header, eyebrow and .tiny note on the site.
      #5b6e7e clears 4.5:1 on all three backgrounds in use (#fff 5.28, #f7fafd

@@ -191,7 +191,17 @@ def main():
                 el.findtext("fullName"), el.findtext("party"), el.findtext("state")))
             n_sponsor[0] += 1
         subs = sorted({s.findtext("name") for s in b.iter("legislativeSubject") if s.findtext("name")})
-        c.execute("INSERT OR REPLACE INTO bill VALUES (%s)" % ",".join("?" * 17), (
+        # 18 columns, named. This said 17 and sat 180 lines below the DDL that
+        # declares 18 — so `DROP TABLE IF EXISTS bill` ran, this ran, and the
+        # refresh died everywhere, not only on CI. The 7 August fix moved
+        # `is_broad` into the DDL and converted the *other* file's insert, and
+        # inverted this one's error from "18 values into 17 columns" to "17 into
+        # 18". Naming the columns is what actually ends it.
+        c.execute("""INSERT OR REPLACE INTO bill
+          (bill_key, congress, bill_type, bill_num, title, policy_area, subjects,
+           sponsor_name, sponsor_bioguide, sponsor_party, sponsor_state, intro_date,
+           latest_action, latest_action_date, summary, source_url, congressgov_url)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             key, congress, bt, bn, b.findtext("title"), b.findtext("policyArea/name"),
             "; ".join(subs), sp.findtext("fullName") if sp is not None else None,
             sp.findtext("bioguideId") if sp is not None else None,

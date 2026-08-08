@@ -63,7 +63,10 @@ for l in leg:
                  t.get("party"), t.get("start"), t.get("end"), t.get("url"), t.get("phone"),
                  str(ids.get("govtrack", "")), ids.get("opensecrets", ""),
                  json.dumps(ids.get("fec", [])), ids.get("lis", ""), l["id"].get("wikipedia", "")))
-c.executemany("INSERT OR REPLACE INTO member VALUES (%s)" % ",".join("?" * 17), rows)
+c.executemany("""INSERT OR REPLACE INTO member
+  (bioguide, full_name, first, last, chamber, state, district, party, term_start,
+   term_end, url, phone, govtrack, opensecrets, fec_ids, lis, wikipedia)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
 print(f"members: {len(rows)}")
 
 
@@ -92,8 +95,30 @@ for cycle in (2024, 2026):
     n = 0
     for r in pipe(D / f"cm{yy}_x/cm.txt"):
         if len(r) < 15: continue
-        c.execute("INSERT OR REPLACE INTO committee VALUES (?,?,?,?,?,?,?,?,?,?)",
-                  (r[0], cycle, r[1], r[2], r[8], r[9], r[10], r[11], r[12], r[14])); n += 1
+        # FEC committee master (cm.txt), by index, from the agency's own header
+        # file — verified against the raw extract:
+        #   [8] CMTE_DSGN  [9] CMTE_TP  [10] CMTE_PTY_AFFILIATION
+        #   [11] CMTE_FILING_FREQ  [12] ORG_TP  [13] CONNECTED_ORG_NM  [14] CAND_ID
+        #
+        # This read [11] and [12], so `org_tp` received the *filing frequency*
+        # and `connected_org` received the org type. The connected organisation's
+        # name — "HALLMARK CARDS, INC." on the first row of the file — was
+        # dropped entirely.
+        #
+        # Three things followed. sectors.py falls back on org_tp for anything no
+        # industry rule matches: 'L' meant Labor and 'C' meant Corporate, and
+        # neither value ever appeared, so STR-LABOR and STR-CORP fired zero
+        # times in the history of the project. ('T','M') matched *Terminated*
+        # and *Monthly filer*, so STR-TRADE fired on filing cadence — which is
+        # how "Trade / Membership (unclassified industry)" became the largest
+        # sector on the site at $1,716,968. And classify_pac searches
+        # name + connected_org; a single letter carries no signal, so every
+        # opaquely-named PAC was classified on its acronym alone.
+        c.execute("""INSERT OR REPLACE INTO committee
+          (cmte_id, cycle, cmte_name, treasurer, cmte_dsgn, cmte_tp, cmte_pty,
+           org_tp, connected_org, cand_id)
+          VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                  (r[0], cycle, r[1], r[2], r[8], r[9], r[10], r[12], r[13], r[14])); n += 1
     print(f"committees {cycle}: {n}")
 
     n = 0
@@ -117,10 +142,14 @@ for cycle in (2024, 2026):
                       r[13], iso(r[13]), amt, r[4], r[18], r[21], r[19], r[20], cycle))
         n += 1
         if len(batch) >= 5000:
-            c.executemany("INSERT OR REPLACE INTO contribution VALUES (%s)" % ",".join("?" * 18), batch)
+            c.executemany("""INSERT OR REPLACE INTO contribution
+  (filer_cmte_id, recipient_name, recipient_cmte_id, cand_id, transaction_tp, entity_tp, city, state, zip, transaction_dt, iso_dt, amount, image_num, file_num, sub_id, memo_cd, memo_text, cycle)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", batch)
             batch = []
     if batch:
-        c.executemany("INSERT OR REPLACE INTO contribution VALUES (%s)" % ",".join("?" * 18), batch)
+        c.executemany("""INSERT OR REPLACE INTO contribution
+  (filer_cmte_id, recipient_name, recipient_cmte_id, cand_id, transaction_tp, entity_tp, city, state, zip, transaction_dt, iso_dt, amount, image_num, file_num, sub_id, memo_cd, memo_text, cycle)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", batch)
     print(f"WI contributions {cycle}: {n}")
 
 con.commit()
